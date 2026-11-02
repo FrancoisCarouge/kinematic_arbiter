@@ -20,8 +20,8 @@ function(add_test_executable test_name test_file)
   # Link with common dependencies using keyword syntax
   target_link_libraries(${test_name} PRIVATE
     kinematic_arbiter_core
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     ${ARGN}  # Additional libraries passed as arguments
   )
 
@@ -49,8 +49,8 @@ function(add_ros2_test_executable test_name test_file)
   # Link with ROS2 libraries using keyword syntax
   target_link_libraries(${test_name} PRIVATE
     kinematic_arbiter_ros2
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
     ${ARGN}  # Additional libraries passed as arguments
   )
 
@@ -135,7 +135,7 @@ set_tests_properties(
 # ROS2 tests
 add_ros2_test_executable(filter_wrapper_test
   "${CMAKE_SOURCE_DIR}/test/ros2/filter_wrapper_test.cpp"
-  ${tf2_geometry_msgs_LIBRARIES})
+  tf2_geometry_msgs::tf2_geometry_msgs)
 
 add_ros2_test_executable(time_manager_test
   "${CMAKE_SOURCE_DIR}/test/ros2/time_manager_test.cpp")
@@ -152,11 +152,11 @@ install(FILES
 # Component test executables
 add_ros2_test_executable(figure8_simulator_test
   "${CMAKE_SOURCE_DIR}/test/ros2/figure8_simulator_test.cpp"
-  ${tf2_geometry_msgs_LIBRARIES})
+  tf2_geometry_msgs::tf2_geometry_msgs)
 
 add_ros2_test_executable(kinematic_arbiter_test
   "${CMAKE_SOURCE_DIR}/test/ros2/kinematic_arbiter_test.cpp"
-  ${tf2_geometry_msgs_LIBRARIES})
+  tf2_geometry_msgs::tf2_geometry_msgs)
 
 # Install the test configuration files for proper discovery
 install(

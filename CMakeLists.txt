@@ -148,14 +148,14 @@ if(NOT BUILD_PYTHON_ONLY)
 
   target_link_libraries(kinematic_arbiter_ros2 PUBLIC
     kinematic_arbiter_core
-    ${rclcpp_LIBRARIES}
+    rclcpp::rclcpp
     ${geometry_msgs_LIBRARIES}
     ${sensor_msgs_LIBRARIES}
     ${std_srvs_LIBRARIES}
-    ${tf2_LIBRARIES}
-    ${tf2_ros_LIBRARIES}
-    ${tf2_eigen_LIBRARIES}
-    ${tf2_geometry_msgs_LIBRARIES}
+    tf2::tf2
+    tf2_ros::tf2_ros
+    tf2_eigen::tf2_eigen
+    tf2_geometry_msgs::tf2_geometry_msgs
   )
 
   # Tests - delegate to test/CMakeLists.txt

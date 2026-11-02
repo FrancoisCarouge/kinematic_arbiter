@@ -25,6 +25,7 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_eigen</depend>
+  <depend>nav_msgs</depend>
   <depend>eigen</depend>
   <depend>launch_testing_ament_cmake</depend>
   <depend>launch_testing</depend>
