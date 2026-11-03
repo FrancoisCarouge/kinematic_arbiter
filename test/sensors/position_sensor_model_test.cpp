@@ -534,4 +534,31 @@ TEST_F(PositionSensorModelTest, InitializeWithSmallLeverArm) {
 
 }  // namespace test
 }  // namespace sensors
+
+// The Jacobian against central differences of the prediction, at a non-trivial attitude, with a lever arm
+TEST(PositionSensorJacobian, MatchesCentralDifferencesWithLeverArm) {
+  using Sensor = kinematic_arbiter::sensors::PositionSensorModel;
+  Eigen::Isometry3d mount = Eigen::Isometry3d::Identity();
+  mount.translate(Eigen::Vector3d{0.2, -0.1, 0.3});
+  Sensor sensor(mount);
+  Sensor::StateVector x = Sensor::StateVector::Zero();
+  const Eigen::Vector4d q = Eigen::Vector4d{0.6, -0.2, 0.5, 0.3}.normalized();
+  x.segment<4>(3) = q;
+  const Eigen::MatrixXd H = sensor.GetMeasurementJacobian(x);
+  const double h = 1e-6;
+  for (int j = 0; j < 4; ++j) {
+    // in the tangent directions of the unit quaternion
+    Eigen::Vector4d e = Eigen::Vector4d::Zero();
+    e[j] = 1.;
+    e -= q * q.dot(e);
+    Sensor::StateVector plus = x, minus = x;
+    plus.segment<4>(3) = q + h * e;
+    minus.segment<4>(3) = q - h * e;
+    const Eigen::VectorXd difference =
+        (sensor.PredictMeasurement(plus) - sensor.PredictMeasurement(minus)) / (2. * h);
+    const Eigen::Vector3d analytic = H.middleCols<4>(3) * e;
+    EXPECT_NEAR((analytic - difference).norm(), 0., 1e-6) << "quaternion direction " << j;
+  }
+}
+
 }  // namespace kinematic_arbiter
