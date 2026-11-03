@@ -374,6 +374,20 @@ TEST_F(PoseSensorModelTest, InitializeCovarianceTransform) {
 
 }  // namespace testing
 }  // namespace sensors
+
+// A quaternion and its opposite are the same rotation: a pose source reporting either gives no innovation
+TEST(PoseSensorInnovation, OppositeQuaternionIsTheSameRotation) {
+  using Sensor = kinematic_arbiter::sensors::PoseSensorModel;
+  using Index = kinematic_arbiter::core::StateIndex;
+  Sensor sensor;
+  Sensor::StateVector x = Sensor::StateVector::Zero();
+  x.segment<4>(Index::Quaternion::Begin()) = Eigen::Vector4d{0.6, -0.2, 0.5, 0.3}.normalized();
+  Eigen::VectorXd measurement = sensor.PredictMeasurement(x);
+  measurement.segment<4>(3) *= -1.;
+  const auto aux = sensor.ComputeAuxiliaryData(x, Sensor::StateCovariance::Identity(), measurement);
+  EXPECT_NEAR(aux.innovation.norm(), 0., 1e-12);
+}
+
 }  // namespace kinematic_arbiter
 
 int main(int argc, char **argv) {

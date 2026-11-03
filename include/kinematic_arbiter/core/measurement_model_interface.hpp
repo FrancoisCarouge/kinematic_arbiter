@@ -118,6 +118,19 @@ public:
   virtual DynamicVector PredictMeasurement(const StateVector& state) const = 0;
 
   /**
+   * @brief The difference of a measurement from its prediction
+   *
+   * A sensor whose measurement does not live in a vector space overrides it.
+   *
+   * @param measurement Actual measurement y_k
+   * @param predicted Predicted measurement h(x_k)
+   * @return Innovation
+   */
+  virtual DynamicVector ComputeInnovation(const DynamicVector& measurement, const DynamicVector& predicted) const {
+    return measurement - predicted;
+  }
+
+  /**
    * @brief Compute the measurement Jacobian H = ∂h/∂x
    *
    * @param state Current state estimate x_k
@@ -184,7 +197,7 @@ public:
     ValidateMeasurementSize(measurement);
 
     // Calculate innovation: ν = y_k - h(x_k)
-    DynamicVector innovation = measurement - PredictMeasurement(state);
+    DynamicVector innovation = ComputeInnovation(measurement, PredictMeasurement(state));
 
     // Get measurement Jacobian: C_k
     DynamicJacobian jacobian = GetMeasurementJacobian(state);
