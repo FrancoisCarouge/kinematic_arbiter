@@ -102,6 +102,25 @@ public:
   }
 
   /**
+   * @brief The difference of a pose from its prediction
+   *
+   * A quaternion and its opposite are the same rotation, and a pose source may
+   * report either: the measured one is taken on the predicted one's side.
+   *
+   * @param measurement Actual measurement
+   * @param predicted Predicted measurement
+   * @return Innovation
+   */
+  DynamicVector ComputeInnovation(const DynamicVector& measurement, const DynamicVector& predicted) const override {
+    DynamicVector innovation = measurement - predicted;
+    if (measurement.template segment<4>(MeasurementIndex::QW).dot(predicted.template segment<4>(MeasurementIndex::QW)) < 0.) {
+      innovation.template segment<4>(MeasurementIndex::QW) =
+          -measurement.template segment<4>(MeasurementIndex::QW) - predicted.template segment<4>(MeasurementIndex::QW);
+    }
+    return innovation;
+  }
+
+  /**
    * @brief Compute measurement Jacobian
    *
    * @param state Current state estimate (unused in this implementation as Jacobian is constant)
