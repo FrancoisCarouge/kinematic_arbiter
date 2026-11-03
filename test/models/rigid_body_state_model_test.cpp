@@ -458,6 +458,37 @@ TEST_F(QuaternionJacobianTest, AngularVelocityJacobian) {
 
 } // namespace test
 } // namespace models
+
+// The transition Jacobian against central differences of the prediction, at a non-trivial attitude: the position
+// rows wrt velocity and acceleration, the quaternion rows wrt angular velocity and acceleration
+TEST(TransitionJacobian, MatchesCentralDifferencesAtNonTrivialAttitude) {
+  kinematic_arbiter::models::RigidBodyStateModel model;
+  using Model = kinematic_arbiter::models::RigidBodyStateModel;
+  using Index = kinematic_arbiter::core::StateIndex;
+  Model::StateVector x = Model::StateVector::Zero();
+  x.segment<4>(Index::Quaternion::Begin()) = Eigen::Vector4d{0.6, -0.2, 0.5, 0.3}.normalized();
+  x.segment<3>(Index::LinearVelocity::Begin()) << 1.0, -2.0, 0.5;
+  x.segment<3>(Index::AngularVelocity::Begin()) << 0.7, 0.3, -0.9;
+  x.segment<3>(Index::LinearAcceleration::Begin()) << 0.2, 0.4, -0.3;
+  x.segment<3>(Index::AngularAcceleration::Begin()) << -0.5, 0.1, 0.6;
+  const double dt = 0.05, h = 1e-6;
+  const Model::StateMatrix A = model.GetTransitionMatrix(x, dt);
+  const auto check = [&](int row_begin, int rows, int column_begin) {
+    for (int j = column_begin; j < column_begin + 3; ++j) {
+      Model::StateVector plus = x, minus = x;
+      plus[j] += h;
+      minus[j] -= h;
+      const Model::StateVector difference = (model.PredictState(plus, dt) - model.PredictState(minus, dt)) / (2. * h);
+      EXPECT_NEAR((A.col(j).segment(row_begin, rows) - difference.segment(row_begin, rows)).norm(), 0., 1e-6)
+          << "rows from " << row_begin << ", column " << j;
+    }
+  };
+  check(Index::Position::Begin(), 3, Index::LinearVelocity::Begin());
+  check(Index::Position::Begin(), 3, Index::LinearAcceleration::Begin());
+  check(Index::Quaternion::Begin(), 4, Index::AngularVelocity::Begin());
+  check(Index::Quaternion::Begin(), 4, Index::AngularAcceleration::Begin());
+}
+
 } // namespace kinematic_arbiter
 
 int main(int argc, char **argv) {
