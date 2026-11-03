@@ -111,18 +111,18 @@ public:
 
       // Derivative with respect to qx
       jacobian(0, core::StateIndex::Quaternion::X) = 2 * (qx*px + qy*py + qz*pz);
-      jacobian(1, core::StateIndex::Quaternion::X) = 2 * (qy*qx - qw*pz);
-      jacobian(2, core::StateIndex::Quaternion::X) = 2 * (qz*qx + qw*py);
+      jacobian(1, core::StateIndex::Quaternion::X) = 2 * (qy*px - qx*py - qw*pz);
+      jacobian(2, core::StateIndex::Quaternion::X) = 2 * (qz*px + qw*py - qx*pz);
 
       // Derivative with respect to qy
-      jacobian(0, core::StateIndex::Quaternion::Y) = 2 * (qx*qy + qw*pz);
-      jacobian(1, core::StateIndex::Quaternion::Y) = 2 * (qy*py + qx*px + qz*pz);
-      jacobian(2, core::StateIndex::Quaternion::Y) = 2 * (qz*qy - qw*px);
+      jacobian(0, core::StateIndex::Quaternion::Y) = 2 * (-qy*px + qx*py + qw*pz);
+      jacobian(1, core::StateIndex::Quaternion::Y) = 2 * (qx*px + qy*py + qz*pz);
+      jacobian(2, core::StateIndex::Quaternion::Y) = 2 * (-qw*px + qz*py - qy*pz);
 
       // Derivative with respect to qz
-      jacobian(0, core::StateIndex::Quaternion::Z) = 2 * (qx*qz - qw*py);
-      jacobian(1, core::StateIndex::Quaternion::Z) = 2 * (qy*qz + qw*px);
-      jacobian(2, core::StateIndex::Quaternion::Z) = 2 * (qz*pz + qx*px + qy*py);
+      jacobian(0, core::StateIndex::Quaternion::Z) = 2 * (-qz*px - qw*py + qx*pz);
+      jacobian(1, core::StateIndex::Quaternion::Z) = 2 * (qw*px - qz*py + qy*pz);
+      jacobian(2, core::StateIndex::Quaternion::Z) = 2 * (qx*px + qy*py + qz*pz);
     }
 
     return jacobian;
