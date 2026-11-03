@@ -489,6 +489,30 @@ TEST(TransitionJacobian, MatchesCentralDifferencesAtNonTrivialAttitude) {
   check(Index::Quaternion::Begin(), 4, Index::AngularAcceleration::Begin());
 }
 
+// The process noise learned from a correction rotating about X: the quaternion's X difference, in the state's
+// w, x, y, z order, and no spurious difference where the correction has none
+TEST(ProcessNoiseAdaptation, ReadsTheQuaternionInStateOrder) {
+  using Model = kinematic_arbiter::models::RigidBodyStateModel;
+  using Index = kinematic_arbiter::core::StateIndex;
+  Model model;
+  Model::StateVector priori = Model::StateVector::Constant(0.1);
+  priori.segment<4>(Index::Quaternion::Begin()) << 1., 0., 0., 0.;
+  Model::StateVector posteriori = priori + Model::StateVector::Constant(0.01);
+  // a rotation of 0.02 rad about X, with small rotations about Y and Z for the adaptation's gate
+  const Eigen::Quaterniond rotation =
+      Eigen::Quaterniond(Eigen::AngleAxisd(0.02, Eigen::Vector3d{1., 0.1, 0.1}.normalized())).normalized();
+  posteriori[Index::Quaternion::W] = rotation.w();
+  posteriori[Index::Quaternion::X] = rotation.x();
+  posteriori[Index::Quaternion::Y] = rotation.y();
+  posteriori[Index::Quaternion::Z] = rotation.z();
+  for (int i = 0; i < 200; ++i) {
+    model.UpdateProcessNoise(priori, posteriori, 2.0, 0.01);
+  }
+  const auto Q = model.GetProcessNoise();
+  EXPECT_GT(Q(Index::Quaternion::X, Index::Quaternion::X), 10. * Q(Index::Quaternion::Z, Index::Quaternion::Z));
+  EXPECT_GT(Q(Index::Quaternion::X, Index::Quaternion::X), 10. * Q(Index::Quaternion::W, Index::Quaternion::W));
+}
+
 } // namespace kinematic_arbiter
 
 int main(int argc, char **argv) {

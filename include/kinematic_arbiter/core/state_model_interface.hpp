@@ -171,11 +171,17 @@ public:
         }
 
     // handle quaternion
-    Eigen::Quaterniond quat_priori(a_priori_state.segment<4>(StateIndex::Quaternion::W));
-    Eigen::Quaterniond quat_posteriori(a_posteriori_state.segment<4>(StateIndex::Quaternion::W));
-    Eigen::Quaterniond quat_diff = (quat_priori.conjugate() * quat_posteriori).normalized();
+    const Eigen::Quaterniond quat_priori(
+        a_priori_state[StateIndex::Quaternion::W], a_priori_state[StateIndex::Quaternion::X],
+        a_priori_state[StateIndex::Quaternion::Y], a_priori_state[StateIndex::Quaternion::Z]);
+    const Eigen::Quaterniond quat_posteriori(
+        a_posteriori_state[StateIndex::Quaternion::W], a_posteriori_state[StateIndex::Quaternion::X],
+        a_posteriori_state[StateIndex::Quaternion::Y], a_posteriori_state[StateIndex::Quaternion::Z]);
+    const Eigen::Quaterniond quat_diff = (quat_priori.conjugate() * quat_posteriori).normalized();
     StateVector raw_diff = a_priori_state - a_posteriori_state;
-    raw_diff.segment<4>(StateIndex::Quaternion::W) = quat_diff.coeffs();
+    // the correction's difference from the identity rotation, in the state's w, x, y, z order
+    raw_diff[StateIndex::Quaternion::W] = quat_diff.w() - 1.0;
+    raw_diff.segment<3>(StateIndex::Quaternion::X) = quat_diff.vec();
 
 
     // Compute state correction
