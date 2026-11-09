@@ -24,7 +24,7 @@ string(LENGTH "${original_content}" content_length)
 message(STATUS "Original CMakeLists.txt length: ${content_length}")
 
 # Set C++20 as the standard to handle designated initializers
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find required dependencies for both Python and C++
