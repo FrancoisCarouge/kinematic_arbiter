@@ -66,38 +66,36 @@ public:
    * @return Expected measurement [vx, vy, vz, wx, wy, wz]'
    */
   DynamicVector PredictMeasurement(const StateVector& state) const override {
+    using typed::AngularSpeed;
+    using typed::Speed;
+
     Vector predicted_measurement = Vector::Zero();
 
     // Extract linear velocity from state
-    Eigen::Vector3d body_lin_vel = state.segment<3>(core::StateIndex::LinearVelocity::X);
+    const auto body_lin_vel = typed::typed<Speed>(Eigen::Vector3d{state.segment<3>(core::StateIndex::LinearVelocity::X)});
 
     // Extract angular velocity from state
-    Eigen::Vector3d body_ang_vel = state.segment<3>(core::StateIndex::AngularVelocity::X);
+    const auto body_ang_vel = typed::typed<AngularSpeed>(Eigen::Vector3d{state.segment<3>(core::StateIndex::AngularVelocity::X)});
 
     // Extract the sensor-to-body transform components
-    Eigen::Vector3d trans_b_s = sensor_pose_in_body_frame_.translation();
-    Eigen::Matrix3d rot_b_s = sensor_pose_in_body_frame_.rotation();
-
-    // Calculate the skew-symmetric matrix for the cross product: ω × r
-    auto skew_matrix = [](const Eigen::Vector3d& v) -> Eigen::Matrix3d {
-      Eigen::Matrix3d skew;
-      skew << 0, -v(2), v(1),
-              v(2), 0, -v(0),
-              -v(1), v(0), 0;
-      return skew;
-    };
+    const auto trans_b_s = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
+    const Eigen::Matrix3d rot_s_b = sensor_pose_in_body_frame_.rotation().transpose();
 
     // Calculate linear velocity at the sensor location in body frame
-    // v_sensor = v_body + ω × r, where r is the position of the sensor in the body frame
-    Eigen::Vector3d body_sensor_lin_vel = body_lin_vel + skew_matrix(body_ang_vel) * trans_b_s;
+    // v_sensor = v_body + ω × r, where r is the position of the sensor in the body frame,
+    // the cross product by the skew-symmetric matrix of ω
+    const typed::Vector<Speed> body_sensor_lin_vel{
+        body_lin_vel + typed::skew<Speed, typed::Length>(body_ang_vel) * trans_b_s};
 
     // Transform velocities to sensor frame
-    Eigen::Vector3d sensor_lin_vel = rot_b_s.transpose() * body_sensor_lin_vel;
-    Eigen::Vector3d sensor_ang_vel = rot_b_s.transpose() * body_ang_vel;
+    const typed::Vector<Speed> sensor_lin_vel{
+        typed::typed<typed::Rotation<Speed>>(rot_s_b, mp_units::one) * body_sensor_lin_vel};
+    const typed::Vector<AngularSpeed> sensor_ang_vel{
+        typed::typed<typed::Rotation<AngularSpeed>>(rot_s_b, mp_units::one) * body_ang_vel};
 
     // Fill measurement vector
-    predicted_measurement.segment<3>(MeasurementIndex::VX) = sensor_lin_vel;
-    predicted_measurement.segment<3>(MeasurementIndex::WX) = sensor_ang_vel;
+    typed::write<MeasurementIndex::VX>(predicted_measurement, sensor_lin_vel);
+    typed::write<MeasurementIndex::WX>(predicted_measurement, sensor_ang_vel);
 
     return predicted_measurement;
   }

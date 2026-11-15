@@ -148,6 +148,15 @@ Untyped untyped(const Typed& value) {
   return result;
 }
 
+/// Writes the vector `value` in the untyped `result` from row `Row`, in the unit
+/// of `Type`.
+template <std::size_t Row, typename Type, typename Untyped>
+void write(Eigen::MatrixBase<Untyped>& result, const Vector<Type>& value) {
+  result(Row) = value.template at<0>().numerical_value_in(Type::unit);
+  result(Row + 1) = value.template at<1>().numerical_value_in(Type::unit);
+  result(Row + 2) = value.template at<2>().numerical_value_in(Type::unit);
+}
+
 /// Places the block `block` in `matrix` at row `Row` and column `Column`: each
 /// element of the block must be of the matrix element it lands on.
 template <std::size_t Row, std::size_t Column, typename Typed, typename Block>

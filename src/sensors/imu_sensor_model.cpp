@@ -32,46 +32,47 @@ constexpr double kEpsilon = 1e-6;
 
 ImuSensorModel::Base::DynamicVector ImuSensorModel::PredictMeasurement(
     const StateVector& state) const {
+  using typed::Acceleration;
+  using typed::AngularSpeed;
+
   Vector predicted_measurement;
 
-  // Extract state components
   const Eigen::Quaterniond q(
       state(StateIndex::Quaternion::W),
       state(StateIndex::Quaternion::X),
       state(StateIndex::Quaternion::Y),
       state(StateIndex::Quaternion::Z)
   );
-  const Eigen::Vector3d omega = state.segment<3>(StateIndex::AngularVelocity::X);
-  const Eigen::Vector3d a_linear = state.segment<3>(StateIndex::LinearAcceleration::X);
-  const Eigen::Vector3d alpha = state.segment<3>(StateIndex::AngularAcceleration::X);
+  const auto omega = typed::typed<AngularSpeed>(Eigen::Vector3d{state.segment<3>(StateIndex::AngularVelocity::X)});
+  const auto a_linear = typed::typed<Acceleration>(Eigen::Vector3d{state.segment<3>(StateIndex::LinearAcceleration::X)});
+  const auto alpha = typed::typed<typed::AngularAcceleration>(Eigen::Vector3d{state.segment<3>(StateIndex::AngularAcceleration::X)});
 
-  // Extract sensor configuration
-  const Eigen::Vector3d& r = sensor_pose_in_body_frame_.translation();
-  const Eigen::Matrix3d& R_BS = sensor_pose_in_body_frame_.rotation().transpose();
+  const auto r = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
+  const Eigen::Matrix3d R_BS = sensor_pose_in_body_frame_.rotation().transpose();
 
-  // Gravity vector in world frame
+  // The gravity in the body frame, in m/s²
   const Eigen::Vector3d g_W(0.0, 0.0, kGravity);
+  const auto g_B = typed::typed<Acceleration>(Eigen::Vector3d{q.inverse() * g_W});
 
-  // Base gyroscope measurement without bias
-  Eigen::Vector3d gyro = R_BS * omega;
+  typed::Vector<AngularSpeed> gyro{
+      typed::typed<typed::Rotation<AngularSpeed>>(R_BS, mp_units::one) * omega};
 
-  // Base accelerometer measurement without bias
-  Eigen::Vector3d accel = R_BS * (
-      a_linear +
-      q.inverse() * g_W +
-      alpha.cross(r) +
-      omega.cross(omega.cross(r))
-  );
+  typed::Vector<Acceleration> accel{
+      typed::typed<typed::Rotation<Acceleration>>(R_BS, mp_units::one) *
+      typed::Vector<Acceleration>{
+          a_linear +
+          g_B +
+          typed::cross(alpha, r) +
+          typed::cross(omega, typed::cross(omega, r))
+      }};
 
-  // Apply biases only if calibration is enabled
   if (config_.calibration_enabled) {
-    gyro += bias_estimator_.GetGyroBias();
-    accel += bias_estimator_.GetAccelBias();
+    gyro = typed::Vector<AngularSpeed>{gyro + typed::typed<AngularSpeed>(bias_estimator_.GetGyroBias())};
+    accel = typed::Vector<Acceleration>{accel + typed::typed<Acceleration>(bias_estimator_.GetAccelBias())};
   }
 
-  // Set the measurement components
-  predicted_measurement.segment<3>(MeasurementIndex::GX) = gyro;
-  predicted_measurement.segment<3>(MeasurementIndex::AX) = accel;
+  typed::write<MeasurementIndex::GX>(predicted_measurement, gyro);
+  typed::write<MeasurementIndex::AX>(predicted_measurement, accel);
 
   return predicted_measurement;
 }
