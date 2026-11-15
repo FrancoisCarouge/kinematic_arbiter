@@ -543,6 +543,32 @@ TEST(ProcessNoiseAdaptation, AdaptsARateIndependentOfTheMeasurementRate) {
   }
 }
 
+// The correction rates are bounded per state, in each state's unit: an upper bound on the position's
+// rate clips its adapted noise to that bound, ζ excluded, and leaves the other states' alone.
+TEST(ProcessNoiseAdaptation, BoundsEachStateInItsOwnUnit) {
+  using Model = kinematic_arbiter::models::RigidBodyStateModel;
+  using Index = kinematic_arbiter::core::StateIndex;
+  const double dt = 0.01;
+  const double correction = 0.1;
+  Model::Params params;
+  params.max_state_diff.segment<3>(Index::Position::Begin()).setConstant(2.0);  // m/s
+  Model model(params);
+  Model::StateVector priori = Model::StateVector::Constant(0.1);
+  priori.segment<4>(Index::Quaternion::Begin()) << 1., 0., 0., 0.;
+  Model::StateVector posteriori = priori + Model::StateVector::Constant(correction);
+  const Eigen::Quaterniond rotation(Eigen::AngleAxisd(2. * correction, Eigen::Vector3d::Ones().normalized()));
+  posteriori[Index::Quaternion::W] = rotation.w();
+  posteriori.segment<3>(Index::Quaternion::X) = rotation.vec();
+  for (int i = 0; i < 1000; ++i) {
+    model.UpdateProcessNoise(priori, posteriori, 1.0, dt);
+  }
+  const auto Q = model.GetProcessNoise();
+  // the position's rate of 10 m/s is clipped to 2 m/s: 2² dt in m²/s
+  EXPECT_NEAR(Q(Index::Position::X, Index::Position::X), 2. * 2. * dt, 1e-6);
+  // the linear velocity's 10 m/s² is not
+  EXPECT_NEAR(Q(Index::LinearVelocity::X, Index::LinearVelocity::X), 10. * 10. * dt, 1e-4);
+}
+
 } // namespace kinematic_arbiter
 
 int main(int argc, char **argv) {

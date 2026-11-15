@@ -32,6 +32,13 @@ public:
     double linear_acceleration_uncertainty_per_second;
     double angular_acceleration_uncertainty_per_second;
 
+    // Bounds of the correction rates the process noise adapts from, per state, each in its
+    // state's unit per second: a rate below its lower bound is taken as zero, and the
+    // adaptation waits for every rate to exceed its own; a rate above its upper bound is
+    // clipped to it.
+    StateVector min_state_diff;
+    StateVector max_state_diff;
+
     // Default constructor with initialization
     Params()
       : process_noise_window(40),
@@ -40,7 +47,9 @@ public:
         linear_velocity_uncertainty_per_second(0.1),
         angular_velocity_uncertainty_per_second(0.1),
         linear_acceleration_uncertainty_per_second(1.0),
-        angular_acceleration_uncertainty_per_second(1.0) {}
+        angular_acceleration_uncertainty_per_second(1.0),
+        min_state_diff(StateVector::Constant(1e-6)),
+        max_state_diff(StateVector::Constant(1e6)) {}
   };
 
   /**
@@ -198,13 +207,14 @@ public:
 
     // Compute state correction
     StateVector tmp_state_diff = sqrt(process_to_measurement_ratio) * (raw_diff.array().abs() / fabs(dt));
-    StateVector bounded_diff = (tmp_state_diff.array() < kMinStateDiff).select(0.0, tmp_state_diff.array()).min(kMaxStateDiff);
+    StateVector bounded_diff = (tmp_state_diff.array() < params_.min_state_diff.array())
+        .select(0.0, tmp_state_diff.array()).min(params_.max_state_diff.array());
 
 
     // Apply maximum bound to state differences
     state_diff_ += (bounded_diff - state_diff_) / params_.process_noise_window;
 
-    if( (state_diff_.array() > kMinStateDiff).all() ) {
+    if( (state_diff_.array() > params_.min_state_diff.array()).all() ) {
 
     // The process noise is a rate, Q = process_noise_ * |dt|: a correction rate d in state/s
     // contributes d d^T |dt| in state^2/s.
@@ -229,10 +239,6 @@ public:
   const Params& GetParams() const { return params_; }
 
 protected:
-  // Threshold for numerical comparisons
-  static constexpr double kMinStateDiff = 1e-6;
-  static constexpr double kMaxStateDiff = 1e6;
-
   StateVector state_diff_ = StateVector::Zero();
 
   // State model parameters
