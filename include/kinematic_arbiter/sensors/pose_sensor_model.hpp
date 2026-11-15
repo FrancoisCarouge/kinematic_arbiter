@@ -3,6 +3,7 @@
 #include "kinematic_arbiter/core/measurement_model_interface.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/core/sensor_types.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 
 namespace kinematic_arbiter {
 namespace sensors {
@@ -127,18 +128,22 @@ public:
    * @return Jacobian of measurement with respect to state
    */
   DynamicJacobian GetMeasurementJacobian(const StateVector& /* state */) const override {
-    Jacobian jacobian = Jacobian::Zero();
+    using typed::Length;
+    using typed::Ratio;
+
+    // The position in metres, the orientation quaternion: each partial derivative
+    // in its measurement's unit per its state's unit.
+    typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<Length, 3>{},
+                                            typed::Repeat<Ratio, 4>{}))> jacobian;
 
     // Position part of the Jacobian - derivative with respect to position is identity
-    jacobian.block<3, 3>(MeasurementIndex::X, core::StateIndex::Position::X) =
-        Eigen::Matrix3d::Identity();
+    typed::place<MeasurementIndex::X, core::StateIndex::Position::X>(
+        jacobian, typed::identity<typed::Partial<Length, Length>>());
 
     // Remove coupling between linear and angular position in the jacobian by
-    // setting to zero. Derivation of partial of position with respect to the
+    // leaving it at zero. Derivation of partial of position with respect to the
     // rotation in quaternion form can be found here:
     // http://www.iri.upc.edu/people/jsola/JoanSola/objectes/notes/kinematics.pdf
-    jacobian.block<3, 4>(MeasurementIndex::X, core::StateIndex::Quaternion::W) =
-        Eigen::Matrix<double, 3, 4>::Zero();
 
     // Extract sensor-in-body quaternion components (q2)
     const Eigen::Quaterniond q2(sensor_pose_in_body_frame_.rotation());
@@ -155,10 +160,11 @@ public:
         // clang-format on
 
     // Fill the quaternion part of the measurement Jacobian
-    jacobian.block<4, 4>(MeasurementIndex::QW, core::StateIndex::Quaternion::W) =
-        quaternion_product_jacobian;
+    typed::place<MeasurementIndex::QW, core::StateIndex::Quaternion::W>(
+        jacobian, typed::typed<typed::Partial<Ratio, Ratio, 4, 4>>(quaternion_product_jacobian,
+                                                                   mp_units::one));
 
-    return jacobian;
+    return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
   }
 
   /**

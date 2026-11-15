@@ -3,6 +3,7 @@
 #include "kinematic_arbiter/core/measurement_model_interface.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/core/sensor_types.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 
 namespace kinematic_arbiter {
 namespace sensors {
@@ -82,10 +83,14 @@ public:
    * @return Jacobian of measurement with respect to state
    */
   DynamicJacobian GetMeasurementJacobian(const StateVector& state) const override {
-    Jacobian jacobian = Jacobian::Zero();
+    using typed::Length;
+
+    // Each partial derivative in metres per its state's unit.
+    typed::Jacobian<typed::Repeat<Length, 3>> jacobian;
 
     // Position part of the Jacobian - derivative with respect to position is identity
-    jacobian.block<3, 3>(0, core::StateIndex::Position::X) = Eigen::Matrix3d::Identity();
+    typed::place<0, core::StateIndex::Position::X>(
+        jacobian, typed::identity<typed::Partial<Length, Length>>());
 
     // If the sensor is mounted with an offset, we need to compute the Jacobian
     // with respect to orientation
@@ -99,33 +104,38 @@ public:
       qw /= norm; qx /= norm; qy /= norm; qz /= norm;
 
       // Extract sensor position in body frame
-      Eigen::Vector3d p = sensor_pose_in_body_frame_.translation();
-      double px = p.x();
-      double py = p.y();
-      double pz = p.z();
+      const auto p = typed::typed<Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
+      const Length px = p.at<0>();
+      const Length py = p.at<1>();
+      const Length pz = p.at<2>();
+
+      // In metres per quaternion component
+      typed::Partial<Length, typed::Ratio, 4> orientation;
 
       // Derivative with respect to qw
-      jacobian(0, core::StateIndex::Quaternion::W) = 2 * (qw*px - qz*py + qy*pz);
-      jacobian(1, core::StateIndex::Quaternion::W) = 2 * (qz*px + qw*py - qx*pz);
-      jacobian(2, core::StateIndex::Quaternion::W) = 2 * (-qy*px + qx*py + qw*pz);
+      orientation.at<0, 0>(2 * (qw*px - qz*py + qy*pz));
+      orientation.at<1, 0>(2 * (qz*px + qw*py - qx*pz));
+      orientation.at<2, 0>(2 * (-qy*px + qx*py + qw*pz));
 
       // Derivative with respect to qx
-      jacobian(0, core::StateIndex::Quaternion::X) = 2 * (qx*px + qy*py + qz*pz);
-      jacobian(1, core::StateIndex::Quaternion::X) = 2 * (qy*px - qx*py - qw*pz);
-      jacobian(2, core::StateIndex::Quaternion::X) = 2 * (qz*px + qw*py - qx*pz);
+      orientation.at<0, 1>(2 * (qx*px + qy*py + qz*pz));
+      orientation.at<1, 1>(2 * (qy*px - qx*py - qw*pz));
+      orientation.at<2, 1>(2 * (qz*px + qw*py - qx*pz));
 
       // Derivative with respect to qy
-      jacobian(0, core::StateIndex::Quaternion::Y) = 2 * (-qy*px + qx*py + qw*pz);
-      jacobian(1, core::StateIndex::Quaternion::Y) = 2 * (qx*px + qy*py + qz*pz);
-      jacobian(2, core::StateIndex::Quaternion::Y) = 2 * (-qw*px + qz*py - qy*pz);
+      orientation.at<0, 2>(2 * (-qy*px + qx*py + qw*pz));
+      orientation.at<1, 2>(2 * (qx*px + qy*py + qz*pz));
+      orientation.at<2, 2>(2 * (-qw*px + qz*py - qy*pz));
 
       // Derivative with respect to qz
-      jacobian(0, core::StateIndex::Quaternion::Z) = 2 * (-qz*px - qw*py + qx*pz);
-      jacobian(1, core::StateIndex::Quaternion::Z) = 2 * (qw*px - qz*py + qy*pz);
-      jacobian(2, core::StateIndex::Quaternion::Z) = 2 * (qx*px + qy*py + qz*pz);
+      orientation.at<0, 3>(2 * (-qz*px - qw*py + qx*pz));
+      orientation.at<1, 3>(2 * (qw*px - qz*py + qy*pz));
+      orientation.at<2, 3>(2 * (qx*px + qy*py + qz*pz));
+
+      typed::place<0, core::StateIndex::Quaternion::W>(jacobian, orientation);
     }
 
-    return jacobian;
+    return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
   }
 
   /**

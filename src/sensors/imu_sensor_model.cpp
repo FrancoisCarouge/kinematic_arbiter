@@ -1,6 +1,7 @@
 #include "kinematic_arbiter/sensors/imu_sensor_model.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/core/statistical_utils.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 #include <Eigen/Geometry>
 #include <cmath>
 
@@ -100,13 +101,25 @@ bool ImuSensorModel::UpdateBiasEstimates(
 
 ImuSensorModel::Base::DynamicJacobian ImuSensorModel::GetMeasurementJacobian(
     const StateVector& state) const {
-  Jacobian jacobian = Jacobian::Zero();
+  using typed::Acceleration;
+  using typed::AngularAcceleration;
+  using typed::AngularSpeed;
+  using typed::Partial;
+  using typed::Ratio;
+  using typed::Rotation;
+  using typed::Speed;
+  using typed::place;
+
+  // The gyroscope in rad/s, the accelerometer in m/s²: each partial derivative in
+  // its measurement's unit per its state's unit.
+  typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<AngularSpeed, 3>{},
+                                          typed::Repeat<Acceleration, 3>{}))> jacobian;
 
   // Extract state components and sensor configuration
-  const Eigen::Vector3d& r = sensor_pose_in_body_frame_.translation();
-  const Eigen::Matrix3d& R_BS = sensor_pose_in_body_frame_.rotation().transpose();
+  const auto r = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
+  const Eigen::Matrix3d R_BS = sensor_pose_in_body_frame_.rotation().transpose();
 
-  const Eigen::Vector3d omega = state.segment<3>(StateIndex::AngularVelocity::X);
+  const auto omega = typed::typed<AngularSpeed>(Eigen::Vector3d{state.segment<3>(StateIndex::AngularVelocity::X)});
 
   // Extract and normalize quaternion orientation
   Eigen::Quaterniond q(
@@ -117,56 +130,49 @@ ImuSensorModel::Base::DynamicJacobian ImuSensorModel::GetMeasurementJacobian(
   );
   q.normalize();
 
-  // Helper function to create a skew-symmetric matrix for cross products
-  auto skew = [](const Eigen::Vector3d& v) -> Eigen::Matrix3d {
-    return (Eigen::Matrix3d() <<
-            0, -v.z(), v.y(),
-            v.z(), 0, -v.x(),
-            -v.y(), v.x(), 0).finished();
-  };
-
   // ==== LOWER BLOCK: GYROSCOPE JACOBIAN ====
   // Gyro measurement is simply body angular velocity rotated to sensor frame
-  jacobian.block<3, 3>(MeasurementIndex::GX, StateIndex::AngularVelocity::X) = R_BS;
+  place<MeasurementIndex::GX, StateIndex::AngularVelocity::X>(
+      jacobian, typed::typed<Rotation<AngularSpeed>>(R_BS, mp_units::one));
 
   // ==== UPPER BLOCK: ACCELEROMETER JACOBIAN ====
+  const auto R_BS_acceleration = typed::typed<Rotation<Acceleration>>(R_BS, mp_units::one);
 
   // 1. Linear acceleration direct mapping
-  jacobian.block<3, 3>(MeasurementIndex::AX, StateIndex::LinearAcceleration::X) = R_BS;
+  place<MeasurementIndex::AX, StateIndex::LinearAcceleration::X>(jacobian, R_BS_acceleration);
 
   // 2. Angular acceleration effect (tangential acceleration): -R_{BS}[r]_\times
-  jacobian.block<3, 3>(MeasurementIndex::AX, StateIndex::AngularAcceleration::X) =
-      -R_BS * skew(r);
+  place<MeasurementIndex::AX, StateIndex::AngularAcceleration::X>(
+      jacobian, Partial<Acceleration, AngularAcceleration>{
+                    -(R_BS_acceleration * typed::skew<Acceleration, AngularAcceleration>(r))});
 
-  // 3. Angular velocity effect on acceleration
-  // To fix the issues with the angular velocity Jacobian, we'll use the expanded cross product formula
-  Eigen::Matrix3d omega_cross_r_jacobian = Eigen::Matrix3d::Zero();
+  // 3. Angular velocity effect on acceleration: the expanded cross product
+  // d(ω×(ω×r))/dω, column by column, accounting for both terms of the derivative
+  Partial<Acceleration, AngularSpeed> omega_cross_r_jacobian;
+  [&]<std::size_t... Index>(std::index_sequence<Index...>) {
+    (
+        [&] {
+          typed::Vector<Ratio> e_i;
+          e_i.template at<Index>(1.0 * mp_units::one);
 
-  // Manually construct the Jacobian for d(ω×(ω×r))/dω
-  // This accounts for both terms in the derivative
-  for (int i = 0; i < 3; i++) {
-    Eigen::Vector3d e_i = Eigen::Vector3d::Zero();
-    e_i(i) = 1.0;
+          // First term: e_i × (ω × r), plus the second: ω × (e_i × r)
+          typed::place_column<Index>(
+              omega_cross_r_jacobian,
+              typed::Vector<Speed>{typed::cross(e_i, typed::cross(omega, r)) +
+                                   typed::cross(omega, typed::cross(e_i, r))});
+        }(),
+        ...);
+  }(std::make_index_sequence<3>{});
 
-    // First term: e_i × (ω × r)
-    Eigen::Vector3d term1 = e_i.cross(omega.cross(r));
-
-    // Second term: ω × (e_i × r)
-    Eigen::Vector3d term2 = omega.cross(e_i.cross(r));
-
-    // Combined effect
-    omega_cross_r_jacobian.col(i) = term1 + term2;
-  }
-
-  jacobian.block<3, 3>(MeasurementIndex::AX, StateIndex::AngularVelocity::X) =
-      R_BS * omega_cross_r_jacobian;
+  place<MeasurementIndex::AX, StateIndex::AngularVelocity::X>(
+      jacobian, Partial<Acceleration, AngularSpeed>{R_BS_acceleration * omega_cross_r_jacobian});
 
   // 4. Quaternion effect on gravity
   // Derive Jacobian for rotation of gravity vector by quaternion
   // For gravity vector g_W = [0, 0, g]^T in world frame
   // The rotated gravity in body frame is: g_B = q.inverse() * g_W * q
   const double qw = q.w(), qx = q.x(), qy = q.y(), qz = q.z();
-  const double g = kGravity;
+  const Acceleration g{kGravity * Acceleration::reference};
 
   // Using the derivation from section 4.3 of the documentation:
   // For g_W = [0, 0, g]^T, the rotation q.inverse() * g_W gives:
@@ -176,19 +182,27 @@ ImuSensorModel::Base::DynamicJacobian ImuSensorModel::GetMeasurementJacobian(
   //   1 - 2(q_x^2 + q_y^2)
   // ]
   //
-  // The Jacobian ∂g_B/∂q is therefore:
-  Eigen::Matrix<double, 3, 4> quaternion_gravity_jacobian;
-  quaternion_gravity_jacobian <<
-      /* ∂/∂q_w */      /* ∂/∂q_x */      /* ∂/∂q_y */      /* ∂/∂q_z */
-      -2*g*qy,          2*g*qz,           -2*g*qw,          2*g*qx,          // ∂g_x/∂q
-      2*g*qx,           2*g*qw,           2*g*qz,           2*g*qy,          // ∂g_y/∂q
-      0,                -4*g*qx,          -4*g*qy,          0;               // ∂g_z/∂q
+  // The Jacobian ∂g_B/∂q is therefore, in m/s² per quaternion component:
+  Partial<Acceleration, Ratio, 4> quaternion_gravity_jacobian;
+  /* ∂/∂q_w, ∂/∂q_x, ∂/∂q_y, ∂/∂q_z of g_x */
+  quaternion_gravity_jacobian.at<0, 0>(-2*g*qy);
+  quaternion_gravity_jacobian.at<0, 1>(2*g*qz);
+  quaternion_gravity_jacobian.at<0, 2>(-2*g*qw);
+  quaternion_gravity_jacobian.at<0, 3>(2*g*qx);
+  /* of g_y */
+  quaternion_gravity_jacobian.at<1, 0>(2*g*qx);
+  quaternion_gravity_jacobian.at<1, 1>(2*g*qw);
+  quaternion_gravity_jacobian.at<1, 2>(2*g*qz);
+  quaternion_gravity_jacobian.at<1, 3>(2*g*qy);
+  /* of g_z */
+  quaternion_gravity_jacobian.at<2, 1>(-4*g*qx);
+  quaternion_gravity_jacobian.at<2, 2>(-4*g*qy);
 
   // Apply sensor-to-body rotation to transform the Jacobian to sensor frame
-  jacobian.block<3, 4>(MeasurementIndex::AX, StateIndex::Quaternion::W) =
-      R_BS * quaternion_gravity_jacobian;
+  place<MeasurementIndex::AX, StateIndex::Quaternion::W>(
+      jacobian, Partial<Acceleration, Ratio, 4>{R_BS_acceleration * quaternion_gravity_jacobian});
 
-  return jacobian;
+  return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
 }
 
 Eigen::Matrix<double, 6, 1> ImuSensorModel::GetPredictionModelInputs(

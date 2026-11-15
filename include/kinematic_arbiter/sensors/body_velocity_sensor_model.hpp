@@ -3,6 +3,7 @@
 #include "kinematic_arbiter/core/measurement_model_interface.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/core/sensor_types.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 
 namespace kinematic_arbiter {
 namespace sensors {
@@ -108,53 +109,45 @@ public:
    * @return Jacobian of measurement with respect to state
    */
   DynamicJacobian GetMeasurementJacobian(const StateVector&) const override {
-    Jacobian jacobian = Jacobian::Zero();
+    using typed::AngularSpeed;
+    using typed::Speed;
+
+    // The linear velocity in m/s, the angular velocity in rad/s: each partial
+    // derivative in its measurement's unit per its state's unit.
+    typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<Speed, 3>{},
+                                            typed::Repeat<AngularSpeed, 3>{}))> jacobian;
 
     // Extract transform parameters
-    Eigen::Vector3d sensor_offset = sensor_pose_in_body_frame_.translation();
-    Eigen::Matrix3d body_to_sensor_rotation = sensor_pose_in_body_frame_.rotation().transpose();
+    const auto sensor_offset = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
+    const Eigen::Matrix3d body_to_sensor_rotation = sensor_pose_in_body_frame_.rotation().transpose();
+    const auto body_to_sensor_speed = typed::typed<typed::Rotation<Speed>>(body_to_sensor_rotation, mp_units::one);
 
     // ===== LINEAR VELOCITY JACOBIAN =====
 
     // Linear velocity w.r.t. linear velocity - simple rotation from body to sensor frame
-    jacobian.block<3, 3>(MeasurementIndex::VX, core::StateIndex::LinearVelocity::X) = body_to_sensor_rotation;
+    typed::place<MeasurementIndex::VX, core::StateIndex::LinearVelocity::X>(jacobian, body_to_sensor_speed);
 
     // Linear velocity w.r.t. angular velocity - lever arm effect
     // The lever arm effect can be represented by partial derivatives of the cross product
     // These derivatives have a standard form for cross products
 
-    // Define cross product derivatives in a more compact way
     // Following standard notation where [r×] is the skew-symmetric matrix of vector r
     // For a sensor at position r, the derivatives of ω×r with respect to each ω component
-    // correspond to the columns of a skew matrix of r
-
-    // Create skew-symmetric matrix of the sensor offset
-    Eigen::Matrix3d skew_offset = Eigen::Matrix3d::Zero();
-    skew_offset <<
-        0,              -sensor_offset.z(),  sensor_offset.y(),
-        sensor_offset.z(),  0,              -sensor_offset.x(),
-       -sensor_offset.y(),  sensor_offset.x(),  0;
-
-    // Each column of this matrix represents the lever arm effect for one angular velocity component
-    // Extract columns for better readability
-    Eigen::Vector3d lever_arm_effect_wx = -skew_offset.col(0);  // Effect of ω_x
-    Eigen::Vector3d lever_arm_effect_wy = -skew_offset.col(1);  // Effect of ω_y
-    Eigen::Vector3d lever_arm_effect_wz = -skew_offset.col(2);  // Effect of ω_z
+    // correspond to the columns of -[r×], in metres: the lever arm effect of ω_x, ω_y, ω_z
+    const typed::Partial<Speed, AngularSpeed> lever_arm_effect{
+        -typed::skew<Speed, AngularSpeed>(sensor_offset)};
 
     // Apply body-to-sensor rotation and fill Jacobian
-    jacobian.block<3, 1>(MeasurementIndex::VX, core::StateIndex::AngularVelocity::X) =
-        body_to_sensor_rotation * lever_arm_effect_wx;
-    jacobian.block<3, 1>(MeasurementIndex::VX, core::StateIndex::AngularVelocity::Y) =
-        body_to_sensor_rotation * lever_arm_effect_wy;
-    jacobian.block<3, 1>(MeasurementIndex::VX, core::StateIndex::AngularVelocity::Z) =
-        body_to_sensor_rotation * lever_arm_effect_wz;
+    typed::place<MeasurementIndex::VX, core::StateIndex::AngularVelocity::X>(
+        jacobian, typed::Partial<Speed, AngularSpeed>{body_to_sensor_speed * lever_arm_effect});
 
     // ===== ANGULAR VELOCITY JACOBIAN =====
 
     // Angular velocity w.r.t. angular velocity - simple rotation from body to sensor frame
-    jacobian.block<3, 3>(MeasurementIndex::WX, core::StateIndex::AngularVelocity::X) = body_to_sensor_rotation;
+    typed::place<MeasurementIndex::WX, core::StateIndex::AngularVelocity::X>(
+        jacobian, typed::typed<typed::Rotation<AngularSpeed>>(body_to_sensor_rotation, mp_units::one));
 
-    return jacobian;
+    return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
   }
 
     /**

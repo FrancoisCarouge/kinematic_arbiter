@@ -46,6 +46,9 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(mp-units REQUIRED)
+find_package(fcarouge-typed-linear-algebra REQUIRED)
+find_package(fcarouge-sparse-linear-algebra REQUIRED)
 
 # Generate interfaces for Python demo
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -125,6 +128,9 @@ if(NOT BUILD_PYTHON_ONLY)
   )
   target_link_libraries(kinematic_arbiter_core PUBLIC
     Eigen3::Eigen
+    mp-units::mp-units
+    fcarouge-typed-linear-algebra::tlinalg
+    fcarouge-sparse-linear-algebra::slinalg
   )
 
   # 2. Build the ROS2 wrapper library separately
