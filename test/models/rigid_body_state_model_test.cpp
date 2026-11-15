@@ -513,6 +513,36 @@ TEST(ProcessNoiseAdaptation, ReadsTheQuaternionInStateOrder) {
   EXPECT_GT(Q(Index::Quaternion::X, Index::Quaternion::X), 10. * Q(Index::Quaternion::W, Index::Quaternion::W));
 }
 
+// A random walk of rate q, observed every dt, is corrected by about sqrt(q dt) per update: the adapted
+// process noise is a rate, ζ q in state^2/s, whatever the measurement rate.
+TEST(ProcessNoiseAdaptation, AdaptsARateIndependentOfTheMeasurementRate) {
+  using Model = kinematic_arbiter::models::RigidBodyStateModel;
+  using Index = kinematic_arbiter::core::StateIndex;
+  const double ratio = 2.0;
+  const double rate = 1.0;
+  const auto adapt = [&](double dt) {
+    Model model;
+    const double correction = std::sqrt(rate * dt);
+    Model::StateVector priori = Model::StateVector::Constant(0.1);
+    priori.segment<4>(Index::Quaternion::Begin()) << 1., 0., 0., 0.;
+    Model::StateVector posteriori = priori + Model::StateVector::Constant(correction);
+    const Eigen::Quaterniond rotation(
+        Eigen::AngleAxisd(2. * correction, Eigen::Vector3d::Ones().normalized()));
+    posteriori[Index::Quaternion::W] = rotation.w();
+    posteriori.segment<3>(Index::Quaternion::X) = rotation.vec();
+    for (int i = 0; i < 1000; ++i) {
+      model.UpdateProcessNoise(priori, posteriori, ratio, dt);
+    }
+    return Model::StateMatrix{model.GetProcessNoise()};
+  };
+  const auto fast = adapt(0.01);
+  const auto slow = adapt(0.04);
+  for (int i : {Index::Position::X, Index::LinearVelocity::Y, Index::AngularAcceleration::Z}) {
+    EXPECT_NEAR(fast(i, i), ratio * rate, 1e-3 * ratio * rate) << "state " << i;
+    EXPECT_NEAR(slow(i, i), ratio * rate, 1e-3 * ratio * rate) << "state " << i;
+  }
+}
+
 } // namespace kinematic_arbiter
 
 int main(int argc, char **argv) {

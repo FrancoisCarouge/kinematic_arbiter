@@ -206,7 +206,9 @@ public:
 
     if( (state_diff_.array() > kMinStateDiff).all() ) {
 
-    process_noise_ += (state_diff_ * state_diff_.transpose() - process_noise_) / (params_.process_noise_window);
+    // The process noise is a rate, Q = process_noise_ * |dt|: a correction rate d in state/s
+    // contributes d d^T |dt| in state^2/s.
+    process_noise_ += (state_diff_ * state_diff_.transpose() * fabs(dt) - process_noise_) / (params_.process_noise_window);
     }
   }
 
