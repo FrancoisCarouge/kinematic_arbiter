@@ -115,6 +115,18 @@ public:
    */
   virtual StateMatrix GetTransitionMatrix(const StateVector& state, double dt) const = 0;
 
+  /**
+   * @brief Propagate the state covariance: A P Aᵀ + Q
+   *
+   * @param transition State transition matrix A of this model
+   * @param covariance State covariance P
+   * @param process_noise Process noise covariance Q
+   * @return The propagated covariance, each element in the product of two state units
+   */
+  virtual StateMatrix PropagateCovariance(
+      const StateMatrix& transition, const StateMatrix& covariance,
+      const StateMatrix& process_noise) const = 0;
+
 /**
    * @brief Predict state forward in time: x̂_k^- = f(x̂_{k-1}^+, u_k)
    *

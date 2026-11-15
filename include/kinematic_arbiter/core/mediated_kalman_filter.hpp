@@ -160,7 +160,7 @@ public:
     }
 
     StateMatrix Q = process_model_->GetProcessNoiseCovariance(dt);
-    StateMatrix covariance_at_sensor_time = A * reference_covariance_ * A.transpose() + Q;
+    StateMatrix covariance_at_sensor_time = process_model_->PropagateCovariance(A, reference_covariance_, Q);
     covariance_at_sensor_time = 0.5 * (covariance_at_sensor_time + covariance_at_sensor_time.transpose());
 
     // Compute auxiliary data
@@ -228,7 +228,7 @@ public:
 
       StateMatrix A_forward = process_model_->GetTransitionMatrix(updated_state, forward_dt);
       StateMatrix Q_forward = process_model_->GetProcessNoiseCovariance(forward_dt);
-      reference_covariance_ = A_forward * updated_covariance * A_forward.transpose() + Q_forward;
+      reference_covariance_ = process_model_->PropagateCovariance(A_forward, updated_covariance, Q_forward);
       reference_covariance_ = 0.5 * (reference_covariance_ + reference_covariance_.transpose());
     }
 
@@ -261,7 +261,7 @@ public:
     double dt = timestamp - reference_time_;
     StateMatrix A = process_model_->GetTransitionMatrix(reference_state_, dt);
     StateMatrix Q = process_model_->GetProcessNoiseCovariance(dt);
-    return A * reference_covariance_ * A.transpose() + Q;
+    return process_model_->PropagateCovariance(A, reference_covariance_, Q);
   }
 
   /**
@@ -301,7 +301,7 @@ public:
     reference_state_ = process_model_->PredictState(reference_state_, dt);
     StateMatrix A = process_model_->GetTransitionMatrix(reference_state_, dt);
     StateMatrix Q = process_model_->GetProcessNoiseCovariance(dt);
-    reference_covariance_ = A * reference_covariance_ * A.transpose() + Q;
+    reference_covariance_ = process_model_->PropagateCovariance(A, reference_covariance_, Q);
     reference_time_ = timestamp;
   }
 

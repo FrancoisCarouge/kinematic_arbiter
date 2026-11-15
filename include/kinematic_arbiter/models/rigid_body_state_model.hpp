@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kinematic_arbiter/core/state_model_interface.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -142,7 +143,18 @@ public:
       return StateMatrix::Identity();
     }
 
-    StateMatrix jacobian = StateMatrix::Zero();
+    using typed::Acceleration;
+    using typed::AngularAcceleration;
+    using typed::AngularSpeed;
+    using typed::Length;
+    using typed::Partial;
+    using typed::Ratio;
+    using typed::Speed;
+
+    // Each element in its row's state unit per its column's.
+    typed::Transition<kTransitionPattern> jacobian;
+    const auto t = time_step * typed::second;
+    const Ratio one{1.0 * mp_units::one};
 
     // Extract quaternion and normalize
     Eigen::Quaterniond orientation(
@@ -157,23 +169,20 @@ public:
     Matrix3d rotation_matrix_b_to_w = orientation.toRotationMatrix();
 
     // Position block - identity for position elements
-    jacobian.block<3,3>(SIdx::Position::Begin(), SIdx::Position::Begin()) =
-      Matrix3d::Identity();
+    typed::place_diagonal<SIdx::Position::Begin(), SIdx::Position::Begin(), 3>(jacobian, one);
 
-    // Position wrt linear velocity
-    jacobian.block<3,3>(SIdx::Position::Begin(), SIdx::LinearVelocity::Begin()) =
-      rotation_matrix_b_to_w * (time_step * Matrix3d::Identity());
+    // Position wrt linear velocity, in seconds: the body velocity rotated to the world
+    typed::place<SIdx::Position::Begin(), SIdx::LinearVelocity::Begin()>(
+      jacobian, typed::typed<Partial<Length, Speed>>(rotation_matrix_b_to_w, t));
 
-    // Position wrt linear acceleration
-    jacobian.block<3,3>(SIdx::Position::Begin(), SIdx::LinearAcceleration::Begin()) =
-      rotation_matrix_b_to_w * (time_step * time_step * 0.5 * Matrix3d::Identity());
+    // Position wrt linear acceleration, in squared seconds
+    typed::place<SIdx::Position::Begin(), SIdx::LinearAcceleration::Begin()>(
+      jacobian, typed::typed<Partial<Length, Acceleration>>(rotation_matrix_b_to_w, t * t * 0.5));
 
     // Remove coupling between linear and angular position in the jacobian by
-    // setting to zero. Derivation of partial of position with respect to the
-    // rotation in quaternion form can be found here:
+    // leaving it at zero, structurally. Derivation of partial of position with
+    // respect to the rotation in quaternion form can be found here:
     // http://www.iri.upc.edu/people/jsola/JoanSola/objectes/notes/kinematics.pdf
-    jacobian.block<3,4>(SIdx::Position::Begin(), SIdx::Quaternion::Begin()) =
-        Eigen::Matrix<double, 3, 4>::Zero();
 
     // Extract angular velocity and acceleration components
     const Vector3d angular_velocity =
@@ -184,11 +193,10 @@ public:
 
     // The quaternion update of PredictState: q(t+dt) = dq(v) * q(t), the rotation vector
     // v = w*t + 0.5*wdot*t^2, dq(v) = [cos(|v|/2), v/|v| sin(|v|/2)], q(t) normalized.
-    const double t = time_step;
-    const Vector3d v = angular_velocity * t + 0.5 * angular_acceleration * t * t;
+    const Vector3d v = angular_velocity * time_step + 0.5 * angular_acceleration * time_step * time_step;
     const double v_norm = v.norm();
 
-    // The derivative of dq wrt v
+    // The derivative of dq wrt v, dimensionless
     Eigen::Matrix<double, 4, 3> ddq_dv;
     ddq_dv.row(0) = -0.25 * v.transpose();
     ddq_dv.bottomRows<3>() = 0.5 * Matrix3d::Identity();
@@ -210,56 +218,74 @@ public:
     // Quaternion self-propagation, to first order in the rotation: the rotation itself
     // is carried by the angular velocity and acceleration blocks, so that A * x
     // approximates the prediction
-    jacobian.block<4,4>(SIdx::Quaternion::Begin(), SIdx::Quaternion::Begin()) =
-        Matrix4d::Identity();
+    typed::place_diagonal<SIdx::Quaternion::Begin(), SIdx::Quaternion::Begin(), 4>(jacobian, one);
 
-    // Quaternion wrt angular velocity and angular acceleration, through v
+    // Quaternion wrt angular velocity, in seconds, and angular acceleration, in
+    // squared seconds, through v
     const Eigen::Matrix<double, 4, 3> dq_dv = right * ddq_dv;
-    jacobian.block<4,3>(SIdx::Quaternion::Begin(), SIdx::AngularVelocity::Begin()) = t * dq_dv;
-    jacobian.block<4,3>(SIdx::Quaternion::Begin(), SIdx::AngularAcceleration::Begin()) = 0.5 * t * t * dq_dv;
+    typed::place<SIdx::Quaternion::Begin(), SIdx::AngularVelocity::Begin()>(
+      jacobian, typed::typed<Partial<Ratio, AngularSpeed, 3, 4>>(dq_dv, t));
+    typed::place<SIdx::Quaternion::Begin(), SIdx::AngularAcceleration::Begin()>(
+      jacobian, typed::typed<Partial<Ratio, AngularAcceleration, 3, 4>>(dq_dv, 0.5 * t * t));
 
     // Velocity blocks - identity for velocity elements
-    jacobian.block<3,3>(SIdx::LinearVelocity::Begin(), SIdx::LinearVelocity::Begin()) =
-      Matrix3d::Identity();
+    typed::place_diagonal<SIdx::LinearVelocity::Begin(), SIdx::LinearVelocity::Begin(), 3>(jacobian, one);
 
     // Linear velocity wrt linear acceleration
-    jacobian.block<3,3>(SIdx::LinearVelocity::Begin(), SIdx::LinearAcceleration::Begin()) =
-      time_step * Matrix3d::Identity();
+    typed::place_diagonal<SIdx::LinearVelocity::Begin(), SIdx::LinearAcceleration::Begin(), 3>(jacobian, t);
 
     // Angular velocity blocks - identity for angular velocity elements
-    jacobian.block<3,3>(SIdx::AngularVelocity::Begin(), SIdx::AngularVelocity::Begin()) =
-      Matrix3d::Identity();
+    typed::place_diagonal<SIdx::AngularVelocity::Begin(), SIdx::AngularVelocity::Begin(), 3>(jacobian, one);
 
     // Angular velocity wrt angular acceleration
-    jacobian.block<3,3>(SIdx::AngularVelocity::Begin(), SIdx::AngularAcceleration::Begin()) =
-      time_step * Matrix3d::Identity();
+    typed::place_diagonal<SIdx::AngularVelocity::Begin(), SIdx::AngularAcceleration::Begin(), 3>(jacobian, t);
 
-    // Acceleration blocks are modelled as zero (no change)
+    // Acceleration is modelled as exponential decay
+    const Ratio decay{std::exp(-kLambda * time_step) * mp_units::one};
+    typed::place_diagonal<SIdx::AngularAcceleration::Begin(), SIdx::AngularAcceleration::Begin(), 3>(jacobian, decay);
+    typed::place_diagonal<SIdx::LinearAcceleration::Begin(), SIdx::LinearAcceleration::Begin(), 3>(jacobian, decay);
 
-    // Velocity blocks - identity for velocity elements
-    jacobian.block<3,3>(SIdx::LinearVelocity::Begin(), SIdx::LinearVelocity::Begin()) =
-      Matrix3d::Identity();
-
-    // Linear velocity wrt linear acceleration
-    jacobian.block<3,3>(SIdx::LinearVelocity::Begin(), SIdx::LinearAcceleration::Begin()) =
-      time_step * Matrix3d::Identity();
-
-    // Angular velocity blocks - identity for angular velocity elements
-    jacobian.block<3,3>(SIdx::AngularVelocity::Begin(), SIdx::AngularVelocity::Begin()) =
-      Matrix3d::Identity();
-
-    // Angular velocity wrt angular acceleration
-    jacobian.block<3,3>(SIdx::AngularVelocity::Begin(), SIdx::AngularAcceleration::Begin()) =
-      time_step * Matrix3d::Identity();
-
-    jacobian.block<3,3>(SIdx::AngularAcceleration::Begin(), SIdx::AngularAcceleration::Begin()) =
-      std::exp(-kLambda * time_step) * Matrix3d::Identity();
-
-    jacobian.block<3,3>(SIdx::LinearAcceleration::Begin(), SIdx::LinearAcceleration::Begin()) =
-      std::exp(-kLambda * time_step) * Matrix3d::Identity();
-
-    return jacobian;
+    return typed::untyped<decltype(jacobian), StateMatrix>(jacobian);
   }
+
+  /**
+   * @brief Propagate the state covariance through the typed transition matrix,
+   * skipping its structural zeros: A P Aᵀ + Q
+   */
+  StateMatrix PropagateCovariance(
+      const StateMatrix& transition, const StateMatrix& covariance,
+      const StateMatrix& process_noise) const override {
+    return typed::propagate<kTransitionPattern, StateMatrix>(transition, covariance, process_noise);
+  }
+
+private:
+  /// The positions the transition depends on: the position on itself and, through
+  /// the body to world rotation, on the linear velocity and acceleration; the
+  /// quaternion on itself and on the angular velocity and acceleration; each
+  /// velocity on itself and its acceleration; each acceleration on itself.
+  static constexpr fcarouge::sparse::pattern kTransitionPattern{
+      fcarouge::sparse::shape<core::StateIndex::kFullStateSize, core::StateIndex::kFullStateSize>,
+      [](std::size_t row, std::size_t column) {
+        using S = core::StateIndex;
+        const auto within = [](std::size_t index, std::size_t begin, std::size_t size) {
+          return index >= begin && index < begin + size;
+        };
+        if (row == column) {
+          return true;
+        }
+        if (within(row, S::Position::Begin(), 3)) {
+          return within(column, S::LinearVelocity::Begin(), 3) ||
+                 within(column, S::LinearAcceleration::Begin(), 3);
+        }
+        if (within(row, S::Quaternion::Begin(), 4)) {
+          return within(column, S::AngularVelocity::Begin(), 3) ||
+                 within(column, S::AngularAcceleration::Begin(), 3);
+        }
+        if (within(row, S::LinearVelocity::Begin(), 6)) {
+          return column == row + 6;
+        }
+        return false;
+      }};
 };
 
 } // namespace models

@@ -109,6 +109,13 @@ using Matrix = fcarouge::typed_matrix<
 /// column's state units.
 using StateCovariance = Matrix<State, State>;
 
+/// The transition matrix of the state: each element in its row's state unit per
+/// its column's, stored at the positions of `Pattern`, structurally zero
+/// elsewhere.
+template <auto Pattern>
+using Transition = fcarouge::typed_matrix<fcarouge::sparse_matrix<double, Pattern>, State,
+                                          typename inverse_elements<State>::type>;
+
 /// The Jacobian of a measurement of the given elements with respect to the state:
 /// each element in the unit of its measurement element per state element, stored
 /// at the positions of `Pattern`, structurally zero elsewhere.
@@ -234,6 +241,21 @@ void place(Typed& matrix, const Block& block) {
   }(std::make_index_sequence<Block::rows * Block::columns>{});
 }
 
+/// Places `value` on `Count` diagonal elements of `matrix` from row `Row` and
+/// column `Column`: each must be stored by the matrix's pattern.
+template <std::size_t Row, std::size_t Column, std::size_t Count, typename Typed, typename Value>
+void place_diagonal(Typed& matrix, const Value& value) {
+  [&]<std::size_t... Index>(std::index_sequence<Index...>) {
+    (
+        [&] {
+          static_assert(stores<Typed, Row + Index, Column + Index>,
+                        "The diagonal lands on a structural zero of the matrix.");
+          matrix.template at<Row + Index, Column + Index>(value);
+        }(),
+        ...);
+  }(std::make_index_sequence<Count>{});
+}
+
 /// Places the vector `column` in `matrix` as the column `Column` of its first
 /// three rows.
 template <std::size_t Column, typename Typed, typename Type>
@@ -292,6 +314,18 @@ Result project(const UntypedJacobian& jacobian, const UntypedCovariance& state_c
   const auto h = read<Jacobian<Measurement, Pattern>>(jacobian);
   return untyped<Covariance, Result>(
       Covariance{h * read<StateCovariance>(state_covariance) * fcarouge::transposed(h)});
+}
+
+/// The state covariance `covariance` propagated by the transition matrix
+/// `transition`, of storage pattern `Pattern`, with the process noise
+/// `process_noise`: A P Aᵀ + Q. The transition's structural zeros are not read.
+template <auto Pattern, typename Result, typename UntypedTransition, typename UntypedCovariance>
+Result propagate(const UntypedTransition& transition, const UntypedCovariance& covariance,
+                 const UntypedCovariance& process_noise) {
+  const auto a = read<Transition<Pattern>>(transition);
+  return untyped<StateCovariance, Result>(StateCovariance{
+      a * read<StateCovariance>(covariance) * fcarouge::transposed(a) +
+      read<StateCovariance>(process_noise)});
 }
 
 }  // namespace typed
