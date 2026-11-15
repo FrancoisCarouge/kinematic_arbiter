@@ -25,6 +25,16 @@ public:
   using Jacobian = Eigen::Matrix<double, kMeasurementDimension, core::StateIndex::kFullStateSize>;
   using Covariance = Eigen::Matrix<double, kMeasurementDimension, kMeasurementDimension>;
   using StateFlags = typename Base::StateFlags;
+  /// The linear velocity in m/s, the angular velocity in rad/s.
+  using Elements = decltype(std::tuple_cat(typed::Repeat<typed::Speed, 3>{}, typed::Repeat<typed::AngularSpeed, 3>{}));
+  /// The linear velocity depends on the linear and, through the lever arm, the
+  /// angular velocities; the angular velocity on the angular velocity.
+  static constexpr fcarouge::sparse::pattern kJacobianPattern{
+      fcarouge::sparse::shape<6, core::StateIndex::kFullStateSize>,
+      [](std::size_t row, std::size_t column) {
+        return column >= (row < 3U ? core::StateIndex::LinearVelocity::X : core::StateIndex::AngularVelocity::X) &&
+               column <= core::StateIndex::AngularVelocity::Z;
+      }};
 
   /**
    * @brief Indices for accessing body velocity measurement components
@@ -112,8 +122,7 @@ public:
 
     // The linear velocity in m/s, the angular velocity in rad/s: each partial
     // derivative in its measurement's unit per its state's unit.
-    typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<Speed, 3>{},
-                                            typed::Repeat<AngularSpeed, 3>{}))> jacobian;
+    typed::Jacobian<Elements, kJacobianPattern> jacobian;
 
     // Extract transform parameters
     const auto sensor_offset = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
@@ -149,6 +158,14 @@ public:
   }
 
     /**
+   * @brief Project the state covariance into the measurement space: C_k P_k C_k^T
+   */
+  DynamicCovariance ProjectStateCovariance(
+      const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const override {
+    return typed::project<Elements, kJacobianPattern, DynamicCovariance>(jacobian, state_covariance);
+  }
+
+  /**
    * @brief Get states that this sensor can directly initialize
    *
    * Body velocity sensors can initialize linear and angular velocity states.

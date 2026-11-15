@@ -105,10 +105,31 @@ using Matrix = fcarouge::typed_matrix<
                                                             std::tuple_size_v<Columns>>>,
     Rows, Columns>;
 
+/// The covariance of the state: each element the product of its row's and its
+/// column's state units.
+using StateCovariance = Matrix<State, State>;
+
 /// The Jacobian of a measurement of the given elements with respect to the state:
-/// each element in the unit of its measurement element per state element.
-template <typename Measurement>
-using Jacobian = Matrix<Measurement, typename inverse_elements<State>::type>;
+/// each element in the unit of its measurement element per state element, stored
+/// at the positions of `Pattern`, structurally zero elsewhere.
+template <typename Measurement,
+          auto Pattern = fcarouge::sparse::dense<std::tuple_size_v<Measurement>,
+                                                 std::tuple_size_v<State>>>
+using Jacobian = fcarouge::typed_matrix<fcarouge::sparse_matrix<double, Pattern>, Measurement,
+                                        typename inverse_elements<State>::type>;
+
+/// The storage pattern of a typed matrix.
+template <typename Typed>
+struct pattern_of;
+
+template <typename Type, auto Pattern, typename Rows, typename Columns>
+struct pattern_of<fcarouge::typed_matrix<fcarouge::sparse_matrix<Type, Pattern>, Rows, Columns>> {
+  static constexpr auto value{Pattern};
+};
+
+/// Whether the typed matrix `Typed` stores its element at `Row`, `Column`.
+template <typename Typed, std::size_t Row, std::size_t Column>
+inline constexpr bool stores{pattern_of<std::remove_cvref_t<Typed>>::value.stores(Row, Column)};
 
 /// The partial derivatives of `Rows` measurement elements of `Row` with respect
 /// to `Columns` state elements of `Column`.
@@ -135,6 +156,27 @@ Typed typed(const Eigen::MatrixBase<Untyped>& value, auto reference) {
   return result;
 }
 
+/// The typed matrix of the untyped `value`, each element read in its own unit.
+/// Its structural zeros are not read.
+template <typename Typed, typename Untyped>
+Typed read(const Eigen::MatrixBase<Untyped>& value) {
+  Typed result;
+  [&]<std::size_t... Index>(std::index_sequence<Index...>) {
+    (
+        [&] {
+          constexpr std::size_t row{Index / Typed::columns};
+          constexpr std::size_t column{Index % Typed::columns};
+          if constexpr (stores<Typed, row, column>) {
+            result.template at<row, column>(
+                value(row, column) *
+                fcarouge::tla::element_at<Typed, row, column>::reference);
+          }
+        }(),
+        ...);
+  }(std::make_index_sequence<Typed::rows * Typed::columns>{});
+  return result;
+}
+
 /// The typed vector of the untyped `value`, read in the unit of `Type`.
 template <typename Type>
 Vector<Type> typed(const Eigen::Vector3d& value) {
@@ -149,12 +191,18 @@ template <typename Typed,
 Untyped untyped(const Typed& value) {
   Untyped result(Typed::rows, Typed::columns);
   [&]<std::size_t... Index>(std::index_sequence<Index...>) {
-    ((result(Index / Typed::columns, Index % Typed::columns) =
-          value.template at<Index / Typed::columns, Index % Typed::columns>()
-              .numerical_value_in(fcarouge::tla::element_at<
-                                  Typed, Index / Typed::columns,
-                                  Index % Typed::columns>::unit)),
-     ...);
+    (
+        [&] {
+          constexpr std::size_t row{Index / Typed::columns};
+          constexpr std::size_t column{Index % Typed::columns};
+          if constexpr (stores<Typed, row, column>) {
+            result(row, column) = value.template at<row, column>().numerical_value_in(
+                fcarouge::tla::element_at<Typed, row, column>::unit);
+          } else {
+            result(row, column) = 0.0;
+          }
+        }(),
+        ...);
   }(std::make_index_sequence<Typed::rows * Typed::columns>{});
   return result;
 }
@@ -169,13 +217,20 @@ void write(Eigen::MatrixBase<Untyped>& result, const Vector<Type>& value) {
 }
 
 /// Places the block `block` in `matrix` at row `Row` and column `Column`: each
-/// element of the block must be of the matrix element it lands on.
+/// element of the block must be of the matrix element it lands on, and stored
+/// by the matrix's pattern.
 template <std::size_t Row, std::size_t Column, typename Typed, typename Block>
 void place(Typed& matrix, const Block& block) {
   [&]<std::size_t... Index>(std::index_sequence<Index...>) {
-    (matrix.template at<Row + Index / Block::columns, Column + Index % Block::columns>(
-         block.template at<Index / Block::columns, Index % Block::columns>()),
-     ...);
+    (
+        [&] {
+          constexpr std::size_t row{Index / Block::columns};
+          constexpr std::size_t column{Index % Block::columns};
+          static_assert(stores<Typed, Row + row, Column + column>,
+                        "The block lands on a structural zero of the matrix.");
+          matrix.template at<Row + row, Column + column>(block.template at<row, column>());
+        }(),
+        ...);
   }(std::make_index_sequence<Block::rows * Block::columns>{});
 }
 
@@ -224,6 +279,19 @@ Partial<Row, Column> skew(const Vector<Type>& value) {
   result.template at<2, 0>(-y);
   result.template at<2, 1>(x);
   return result;
+}
+
+/// The state covariance `state_covariance` projected into the measurement space
+/// by the measurement's Jacobian `jacobian`, H P Hᵀ: each element the product of
+/// two measurement units.
+/// The Jacobian's structural zeros, `Pattern`, are not read.
+template <typename Measurement, auto Pattern, typename Result, typename UntypedJacobian,
+          typename UntypedCovariance>
+Result project(const UntypedJacobian& jacobian, const UntypedCovariance& state_covariance) {
+  using Covariance = Matrix<Measurement, Measurement>;
+  const auto h = read<Jacobian<Measurement, Pattern>>(jacobian);
+  return untyped<Covariance, Result>(
+      Covariance{h * read<StateCovariance>(state_covariance) * fcarouge::transposed(h)});
 }
 
 }  // namespace typed

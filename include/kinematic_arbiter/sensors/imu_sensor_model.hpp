@@ -7,6 +7,7 @@
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/sensors/imu_bias_estimator.hpp"
 #include "kinematic_arbiter/core/sensor_types.hpp"
+#include "kinematic_arbiter/core/typed_state.hpp"
 
 namespace kinematic_arbiter {
 namespace sensors {
@@ -39,6 +40,19 @@ public:
   using Jacobian = Eigen::Matrix<double, kMeasurementDimension, core::StateIndex::kFullStateSize>;
   using Covariance = Eigen::Matrix<double, kMeasurementDimension, kMeasurementDimension>;
   using StateFlags = typename Base::StateFlags;
+  /// The gyroscope in rad/s, the accelerometer in m/s².
+  using Elements = decltype(std::tuple_cat(typed::Repeat<typed::AngularSpeed, 3>{},
+                                           typed::Repeat<typed::Acceleration, 3>{}));
+  /// The gyroscope depends on the angular velocity; the accelerometer on the
+  /// orientation, through gravity, and on the angular velocity and the linear
+  /// and angular accelerations.
+  static constexpr fcarouge::sparse::pattern kJacobianPattern{
+      fcarouge::sparse::shape<6, core::StateIndex::kFullStateSize>,
+      [](std::size_t row, std::size_t column) {
+        return row < 3U ? column >= core::StateIndex::AngularVelocity::X && column <= core::StateIndex::AngularVelocity::Z
+                        : (column >= core::StateIndex::Quaternion::W && column <= core::StateIndex::Quaternion::Z) ||
+                              column >= core::StateIndex::AngularVelocity::X;
+      }};
 
   /**
    * @brief Indices for accessing IMU measurement components
@@ -110,6 +124,12 @@ public:
    * @return Jacobian of measurement with respect to state
    */
   DynamicJacobian GetMeasurementJacobian(const StateVector& state) const override;
+
+  /**
+   * @brief Project the state covariance into the measurement space: C_k P_k C_k^T
+   */
+  DynamicCovariance ProjectStateCovariance(
+      const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const override;
 
   /**
    * @brief Get the inputs to the prediction model

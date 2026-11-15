@@ -113,8 +113,7 @@ ImuSensorModel::Base::DynamicJacobian ImuSensorModel::GetMeasurementJacobian(
 
   // The gyroscope in rad/s, the accelerometer in m/s²: each partial derivative in
   // its measurement's unit per its state's unit.
-  typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<AngularSpeed, 3>{},
-                                          typed::Repeat<Acceleration, 3>{}))> jacobian;
+  typed::Jacobian<Elements, kJacobianPattern> jacobian;
 
   // Extract state components and sensor configuration
   const auto r = typed::typed<typed::Length>(Eigen::Vector3d{sensor_pose_in_body_frame_.translation()});
@@ -204,6 +203,11 @@ ImuSensorModel::Base::DynamicJacobian ImuSensorModel::GetMeasurementJacobian(
       jacobian, Partial<Acceleration, Ratio, 4>{R_BS_acceleration * quaternion_gravity_jacobian});
 
   return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
+}
+
+ImuSensorModel::Base::DynamicCovariance ImuSensorModel::ProjectStateCovariance(
+    const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const {
+  return typed::project<Elements, kJacobianPattern, DynamicCovariance>(jacobian, state_covariance);
 }
 
 Eigen::Matrix<double, 6, 1> ImuSensorModel::GetPredictionModelInputs(

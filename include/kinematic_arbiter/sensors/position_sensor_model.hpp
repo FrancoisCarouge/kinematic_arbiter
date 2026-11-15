@@ -22,6 +22,15 @@ public:
   using Jacobian = Eigen::Matrix<double, kMeasurementDimension, core::StateIndex::kFullStateSize>;
   using Covariance = Eigen::Matrix<double, kMeasurementDimension, kMeasurementDimension>;
   using StateFlags = typename Base::StateFlags;
+  /// The position in metres.
+  using Elements = typed::Repeat<typed::Length, 3>;
+  /// The position depends on the position and, through the lever arm, the
+  /// orientation.
+  static constexpr fcarouge::sparse::pattern kJacobianPattern{
+      fcarouge::sparse::shape<3, core::StateIndex::kFullStateSize>,
+      [](std::size_t, std::size_t column) {
+        return column < core::StateIndex::Quaternion::Z + 1U;
+      }};
 
   /**
    * @brief Indices for accessing position measurement components
@@ -86,7 +95,7 @@ public:
     using typed::Length;
 
     // Each partial derivative in metres per its state's unit.
-    typed::Jacobian<typed::Repeat<Length, 3>> jacobian;
+    typed::Jacobian<Elements, kJacobianPattern> jacobian;
 
     // Position part of the Jacobian - derivative with respect to position is identity
     typed::place<0, core::StateIndex::Position::X>(
@@ -136,6 +145,14 @@ public:
     }
 
     return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
+  }
+
+  /**
+   * @brief Project the state covariance into the measurement space: C_k P_k C_k^T
+   */
+  DynamicCovariance ProjectStateCovariance(
+      const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const override {
+    return typed::project<Elements, kJacobianPattern, DynamicCovariance>(jacobian, state_covariance);
   }
 
   /**

@@ -139,6 +139,16 @@ public:
   virtual DynamicJacobian GetMeasurementJacobian(const StateVector& state) const = 0;
 
   /**
+   * @brief Project the state covariance into the measurement space
+   *
+   * @param jacobian Measurement Jacobian C_k of this sensor
+   * @param state_covariance State covariance P_k
+   * @return C_k P_k C_k^T, each element in the product of two measurement units
+   */
+  virtual DynamicCovariance ProjectStateCovariance(
+      const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const = 0;
+
+  /**
    * @brief Get the inputs to the prediction model
    *
    * @param state_before_prediction Current state estimate x_k
@@ -204,7 +214,7 @@ public:
 
     // Calculate innovation covariance: S = C_k P_k C_k^T + R
     DynamicCovariance innovation_covariance =
-        jacobian * state_covariance * jacobian.transpose() + measurement_covariance_;
+        ProjectStateCovariance(jacobian, state_covariance) + measurement_covariance_;
 
     return MeasurementAuxData(innovation, jacobian, innovation_covariance);
   }
@@ -311,7 +321,7 @@ public:
       // Scale covariance to make chi-squared test pass
       double scale_factor = chi_squared_term / threshold;
       aux_data.innovation_covariance *= scale_factor;
-      measurement_covariance_ = aux_data.innovation_covariance - aux_data.jacobian * state_covariance * aux_data.jacobian.transpose();
+      measurement_covariance_ = aux_data.innovation_covariance - ProjectStateCovariance(aux_data.jacobian, state_covariance);
       previous_measurement_data_.covariance = measurement_covariance_;
       return true;
     }

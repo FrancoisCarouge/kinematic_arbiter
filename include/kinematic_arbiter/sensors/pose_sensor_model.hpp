@@ -24,6 +24,15 @@ public:
   using Jacobian = Eigen::Matrix<double, kMeasurementDimension, core::StateIndex::kFullStateSize>;
   using Covariance = Eigen::Matrix<double, kMeasurementDimension, kMeasurementDimension>;
   using StateFlags = typename Base::StateFlags;
+  /// The position in metres, the orientation quaternion.
+  using Elements = decltype(std::tuple_cat(typed::Repeat<typed::Length, 3>{}, typed::Repeat<typed::Ratio, 4>{}));
+  /// The position depends on the position, the orientation on the orientation.
+  static constexpr fcarouge::sparse::pattern kJacobianPattern{
+      fcarouge::sparse::shape<7, core::StateIndex::kFullStateSize>,
+      [](std::size_t row, std::size_t column) {
+        return row < 3U ? column < 3U
+                        : column >= core::StateIndex::Quaternion::W && column <= core::StateIndex::Quaternion::Z;
+      }};
   /**
    * @brief Indices for accessing pose measurement components
    */
@@ -133,8 +142,7 @@ public:
 
     // The position in metres, the orientation quaternion: each partial derivative
     // in its measurement's unit per its state's unit.
-    typed::Jacobian<decltype(std::tuple_cat(typed::Repeat<Length, 3>{},
-                                            typed::Repeat<Ratio, 4>{}))> jacobian;
+    typed::Jacobian<Elements, kJacobianPattern> jacobian;
 
     // Position part of the Jacobian - derivative with respect to position is identity
     typed::place<MeasurementIndex::X, core::StateIndex::Position::X>(
@@ -165,6 +173,14 @@ public:
                                                                    mp_units::one));
 
     return typed::untyped<decltype(jacobian), DynamicJacobian>(jacobian);
+  }
+
+  /**
+   * @brief Project the state covariance into the measurement space: C_k P_k C_k^T
+   */
+  DynamicCovariance ProjectStateCovariance(
+      const DynamicJacobian& jacobian, const StateCovariance& state_covariance) const override {
+    return typed::project<Elements, kJacobianPattern, DynamicCovariance>(jacobian, state_covariance);
   }
 
   /**
