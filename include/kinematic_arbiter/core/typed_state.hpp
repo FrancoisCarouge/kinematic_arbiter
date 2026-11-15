@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <tuple>
@@ -109,6 +110,33 @@ using Matrix = fcarouge::typed_matrix<
 /// column's state units.
 using StateCovariance = Matrix<State, State>;
 
+template <typename Tuple>
+struct per_second_elements;
+
+template <typename... Type>
+struct per_second_elements<std::tuple<Type...>> {
+  using type = std::tuple<decltype(Type{} / Quantity<second>{})...>;
+};
+
+/// The rate of change of each state element.
+using StateRate = typename per_second_elements<State>::type;
+
+template <typename Tuple>
+struct column_vector_of;
+
+template <typename... Type>
+struct column_vector_of<std::tuple<Type...>> {
+  using type = fcarouge::typed_column_vector<
+      fcarouge::sparse_matrix<double, fcarouge::sparse::dense<sizeof...(Type), 1>>, Type...>;
+};
+
+/// A rate of change of the state.
+using StateRateVector = typename column_vector_of<StateRate>::type;
+
+/// The process noise as a rate: each element the product of its row's and its
+/// column's state units per second.
+using ProcessNoiseRate = Matrix<StateRate, State>;
+
 /// The transition matrix of the state: each element in its row's state unit per
 /// its column's, stored at the positions of `Pattern`, structurally zero
 /// elsewhere.
@@ -173,7 +201,10 @@ Typed read(const Eigen::MatrixBase<Untyped>& value) {
         [&] {
           constexpr std::size_t row{Index / Typed::columns};
           constexpr std::size_t column{Index % Typed::columns};
-          if constexpr (stores<Typed, row, column>) {
+          if constexpr (stores<Typed, row, column> && Typed::columns == 1) {
+            result.template at<row>(value(row, column) *
+                                    fcarouge::tla::element_at<Typed, row, column>::reference);
+          } else if constexpr (stores<Typed, row, column>) {
             result.template at<row, column>(
                 value(row, column) *
                 fcarouge::tla::element_at<Typed, row, column>::reference);
@@ -202,7 +233,10 @@ Untyped untyped(const Typed& value) {
         [&] {
           constexpr std::size_t row{Index / Typed::columns};
           constexpr std::size_t column{Index % Typed::columns};
-          if constexpr (stores<Typed, row, column>) {
+          if constexpr (stores<Typed, row, column> && Typed::columns == 1) {
+            result(row, column) = value.template at<row>().numerical_value_in(
+                fcarouge::tla::element_at<Typed, row, column>::unit);
+          } else if constexpr (stores<Typed, row, column>) {
             result(row, column) = value.template at<row, column>().numerical_value_in(
                 fcarouge::tla::element_at<Typed, row, column>::unit);
           } else {
@@ -326,6 +360,17 @@ Result propagate(const UntypedTransition& transition, const UntypedCovariance& c
   return untyped<StateCovariance, Result>(StateCovariance{
       a * read<StateCovariance>(covariance) * fcarouge::transposed(a) +
       read<StateCovariance>(process_noise)});
+}
+
+/// The process noise rate `process_noise` moved by a step of `1 / window` towards
+/// the outer product of the correction rate `state_diff` over `dt`.
+template <typename Result, typename UntypedVector, typename UntypedMatrix>
+Result adapt_process_noise(const UntypedVector& state_diff, const UntypedMatrix& process_noise,
+                           double dt, double window) {
+  const auto d = read<StateRateVector>(state_diff);
+  const auto q = read<ProcessNoiseRate>(process_noise);
+  return untyped<ProcessNoiseRate, Result>(ProcessNoiseRate{
+      q + (d * fcarouge::transposed(d) * (std::abs(dt) * second) - q) / window});
 }
 
 }  // namespace typed
