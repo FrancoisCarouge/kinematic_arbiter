@@ -3,6 +3,8 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "kinematic_arbiter/core/typed_state.hpp"
+
 namespace kinematic_arbiter {
 namespace sensors {
 
@@ -16,9 +18,7 @@ class ImuBiasEstimator {
 public:
 
   explicit ImuBiasEstimator(uint32_t window_size = 100)
-      : window_size_(window_size),
-        gyro_bias_(Eigen::Vector3d::Zero()),
-        accel_bias_(Eigen::Vector3d::Zero()) {}
+      : window_size_(window_size) {}
 
   /**
    * @brief Estimate biases if vehicle is stationary
@@ -38,25 +38,25 @@ public:
    * @brief Reset all bias calibration parameters to default values
    */
   void ResetCalibration() {
-    gyro_bias_.setZero();
-    accel_bias_.setZero();
+    gyro_bias_ = typed::Vector<typed::AngularSpeed>{};
+    accel_bias_ = typed::Vector<typed::Acceleration>{};
   }
 
   /**
    * @brief Get current gyroscope bias estimate
    */
-  const Eigen::Vector3d& GetGyroBias() const { return gyro_bias_; }
+  Eigen::Vector3d GetGyroBias() const { return typed::untyped(gyro_bias_); }
 
   /**
    * @brief Get current accelerometer bias estimate
    */
-  const Eigen::Vector3d& GetAccelBias() const { return accel_bias_; }
+  Eigen::Vector3d GetAccelBias() const { return typed::untyped(accel_bias_); }
 
 
 private:
   uint32_t window_size_;
-  Eigen::Vector3d gyro_bias_;
-  Eigen::Vector3d accel_bias_;
+  typed::Vector<typed::AngularSpeed> gyro_bias_;  // [rad/s, the angle a ratio]
+  typed::Vector<typed::Acceleration> accel_bias_;  // [m/s²]
 };
 
 } // namespace sensors

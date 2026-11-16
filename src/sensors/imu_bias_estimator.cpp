@@ -11,12 +11,16 @@ void ImuBiasEstimator::EstimateBiases(
 
 
   // Calculate instantaneous bias estimate (measured - predicted)
-  Eigen::Vector3d current_gyro_bias = measured_gyro - predicted_gyro;
-  Eigen::Vector3d current_accel_bias = measured_accel - predicted_accel;
+  using typed::Acceleration;
+  using typed::AngularSpeed;
+  const typed::Vector<AngularSpeed> current_gyro_bias{
+      typed::typed<AngularSpeed>(measured_gyro) - typed::typed<AngularSpeed>(predicted_gyro)};
+  const typed::Vector<Acceleration> current_accel_bias{
+      typed::typed<Acceleration>(measured_accel) - typed::typed<Acceleration>(predicted_accel)};
 
   // Update biases using recursive averaging formula
-  gyro_bias_ = gyro_bias_ + (current_gyro_bias - gyro_bias_) / window_size_;
-  accel_bias_ = accel_bias_ + (current_accel_bias - accel_bias_) / window_size_;
+  gyro_bias_ = typed::Vector<AngularSpeed>{gyro_bias_ + (current_gyro_bias - gyro_bias_) / window_size_};
+  accel_bias_ = typed::Vector<Acceleration>{accel_bias_ + (current_accel_bias - accel_bias_) / window_size_};
 }
 
 } // namespace sensors
