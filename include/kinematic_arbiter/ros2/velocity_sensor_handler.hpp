@@ -79,22 +79,20 @@ protected:
     double sign = positive ? 1.0 : -1.0;
 
     // Apply bounds to linear velocity components using measurement indices
-    double vx_std_dev = std::sqrt(covariance(MeasurementIndex::VX, MeasurementIndex::VX));
-    double vy_std_dev = std::sqrt(covariance(MeasurementIndex::VY, MeasurementIndex::VY));
-    double vz_std_dev = std::sqrt(covariance(MeasurementIndex::VZ, MeasurementIndex::VZ));
-
-    bounded_msg.twist.linear.x += sign * vx_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.twist.linear.y += sign * vy_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.twist.linear.z += sign * vz_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.twist.linear.x = SigmaBounded<typed::Speed>(
+        bounded_msg.twist.linear.x, covariance(MeasurementIndex::VX, MeasurementIndex::VX), sign);
+    bounded_msg.twist.linear.y = SigmaBounded<typed::Speed>(
+        bounded_msg.twist.linear.y, covariance(MeasurementIndex::VY, MeasurementIndex::VY), sign);
+    bounded_msg.twist.linear.z = SigmaBounded<typed::Speed>(
+        bounded_msg.twist.linear.z, covariance(MeasurementIndex::VZ, MeasurementIndex::VZ), sign);
 
     // Apply bounds to angular velocity components using measurement indices
-    double wx_std_dev = std::sqrt(covariance(MeasurementIndex::WX, MeasurementIndex::WX));
-    double wy_std_dev = std::sqrt(covariance(MeasurementIndex::WY, MeasurementIndex::WY));
-    double wz_std_dev = std::sqrt(covariance(MeasurementIndex::WZ, MeasurementIndex::WZ));
-
-    bounded_msg.twist.angular.x += sign * wx_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.twist.angular.y += sign * wy_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.twist.angular.z += sign * wz_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.twist.angular.x = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.twist.angular.x, covariance(MeasurementIndex::WX, MeasurementIndex::WX), sign);
+    bounded_msg.twist.angular.y = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.twist.angular.y, covariance(MeasurementIndex::WY, MeasurementIndex::WY), sign);
+    bounded_msg.twist.angular.z = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.twist.angular.z, covariance(MeasurementIndex::WZ, MeasurementIndex::WZ), sign);
 
     return bounded_msg;
   }

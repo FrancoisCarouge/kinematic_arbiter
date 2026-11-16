@@ -89,22 +89,20 @@ protected:
     double sign = positive ? 1.0 : -1.0;
 
     // Angular velocity bounds using measurement indices
-    double gx_std_dev = std::sqrt(covariance(MeasurementIndex::GX, MeasurementIndex::GX));
-    double gy_std_dev = std::sqrt(covariance(MeasurementIndex::GY, MeasurementIndex::GY));
-    double gz_std_dev = std::sqrt(covariance(MeasurementIndex::GZ, MeasurementIndex::GZ));
-
-    bounded_msg.angular_velocity.x += sign * gx_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.angular_velocity.y += sign * gy_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.angular_velocity.z += sign * gz_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.angular_velocity.x = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.angular_velocity.x, covariance(MeasurementIndex::GX, MeasurementIndex::GX), sign);
+    bounded_msg.angular_velocity.y = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.angular_velocity.y, covariance(MeasurementIndex::GY, MeasurementIndex::GY), sign);
+    bounded_msg.angular_velocity.z = SigmaBounded<typed::AngularSpeed>(
+        bounded_msg.angular_velocity.z, covariance(MeasurementIndex::GZ, MeasurementIndex::GZ), sign);
 
     // Linear acceleration bounds using measurement indices
-    double ax_std_dev = std::sqrt(covariance(MeasurementIndex::AX, MeasurementIndex::AX));
-    double ay_std_dev = std::sqrt(covariance(MeasurementIndex::AY, MeasurementIndex::AY));
-    double az_std_dev = std::sqrt(covariance(MeasurementIndex::AZ, MeasurementIndex::AZ));
-
-    bounded_msg.linear_acceleration.x += sign * ax_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.linear_acceleration.y += sign * ay_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.linear_acceleration.z += sign * az_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.linear_acceleration.x = SigmaBounded<typed::Acceleration>(
+        bounded_msg.linear_acceleration.x, covariance(MeasurementIndex::AX, MeasurementIndex::AX), sign);
+    bounded_msg.linear_acceleration.y = SigmaBounded<typed::Acceleration>(
+        bounded_msg.linear_acceleration.y, covariance(MeasurementIndex::AY, MeasurementIndex::AY), sign);
+    bounded_msg.linear_acceleration.z = SigmaBounded<typed::Acceleration>(
+        bounded_msg.linear_acceleration.z, covariance(MeasurementIndex::AZ, MeasurementIndex::AZ), sign);
 
     return bounded_msg;
   }

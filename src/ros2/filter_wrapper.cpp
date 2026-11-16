@@ -1,6 +1,37 @@
 #include "kinematic_arbiter/ros2/filter_wrapper.hpp"
+
+#include <array>
+#include <utility>
+
+#include "kinematic_arbiter/core/typed_state.hpp"
 #include "kinematic_arbiter/core/state_index.hpp"
 #include "kinematic_arbiter/ros2/ros2_utils.hpp"
+
+
+namespace {
+
+namespace typed = kinematic_arbiter::typed;
+
+/**
+ * @brief Writes the 3x3 block of the typed state covariance `p` at `StateRow`,
+ * `StateColumn` into the 6x6 message covariance `out` at `row`, `column`, each
+ * element in `unit`: a block of another unit does not compile
+ */
+template <std::size_t StateRow, std::size_t StateColumn, typename Unit>
+void ExportBlock(const typed::StateCovariance& p, std::array<double, 36>& out, int row, int column,
+                 Unit unit) {
+  [&]<std::size_t... Index>(std::index_sequence<Index...>) {
+    ((out[(row + Index / 3) * 6 + column + Index % 3] =
+          p.template at<StateRow + Index / 3, StateColumn + Index % 3>().numerical_value_in(unit)),
+     ...);
+  }(std::make_index_sequence<9>{});
+}
+
+constexpr auto metre = mp_units::si::metre;
+constexpr auto second = mp_units::si::second;
+constexpr auto per_second = mp_units::one / second;
+
+}  // namespace
 
 namespace kinematic_arbiter {
 namespace ros2 {
@@ -191,16 +222,14 @@ geometry_msgs::msg::PoseWithCovarianceStamped FilterWrapper::getPoseEstimate() {
   msg.pose.pose.orientation.z = state(StateIndex::Quaternion::Z);
 
   // Fill covariance (position and orientation blocks)
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      // Position covariance (top-left 3x3 block)
-      msg.pose.covariance[i*6 + j] = covariance(StateIndex::Position::X + i, StateIndex::Position::X + j);
-
-      // Orientation covariance (bottom-right 3x3 block)
-      // Note: This is an approximation as we're mapping quaternion to Euler angle representation
-      msg.pose.covariance[(i+3)*6 + (j+3)] = covariance(StateIndex::Quaternion::X + i, StateIndex::Quaternion::X + j);
-    }
-  }
+  const auto p = typed::read<typed::StateCovariance>(covariance);
+  // Position covariance (top-left 3x3 block) [m²]
+  ExportBlock<StateIndex::Position::X, StateIndex::Position::X>(p, msg.pose.covariance, 0, 0, metre * metre);
+  // Orientation covariance (bottom-right 3x3 block): the message's is of the
+  // rotation about each axis [rad²], the state's of the quaternion's vector
+  // part [1], about half the rotation angle: its numbers are published as
+  // they are, an approximation (Q14)
+  ExportBlock<StateIndex::Quaternion::X, StateIndex::Quaternion::X>(p, msg.pose.covariance, 3, 3, mp_units::one);
 
   return msg;
 }
@@ -230,15 +259,13 @@ geometry_msgs::msg::TwistWithCovarianceStamped FilterWrapper::getVelocityEstimat
   msg.twist.twist.angular.z = state(StateIndex::AngularVelocity::Z);
 
   // Fill covariance
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      // Linear velocity covariance (top-left 3x3 block)
-      msg.twist.covariance[i*6 + j] = covariance(StateIndex::LinearVelocity::X + i, StateIndex::LinearVelocity::X + j);
-
-      // Angular velocity covariance (bottom-right 3x3 block)
-      msg.twist.covariance[(i+3)*6 + (j+3)] = covariance(StateIndex::AngularVelocity::X + i, StateIndex::AngularVelocity::X + j);
-    }
-  }
+  const auto p = typed::read<typed::StateCovariance>(covariance);
+  // Linear velocity covariance (top-left 3x3 block) [(m/s)²]
+  ExportBlock<StateIndex::LinearVelocity::X, StateIndex::LinearVelocity::X>(
+      p, msg.twist.covariance, 0, 0, (metre / second) * (metre / second));
+  // Angular velocity covariance (bottom-right 3x3 block) [(rad/s)², the angle a ratio]
+  ExportBlock<StateIndex::AngularVelocity::X, StateIndex::AngularVelocity::X>(
+      p, msg.twist.covariance, 3, 3, per_second * per_second);
 
   return msg;
 }
@@ -267,15 +294,13 @@ geometry_msgs::msg::AccelWithCovarianceStamped FilterWrapper::getAccelerationEst
   msg.accel.accel.angular.z = state(StateIndex::AngularAcceleration::Z);
 
   // Fill covariance
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      // Linear acceleration covariance (top-left 3x3 block)
-      msg.accel.covariance[i*6 + j] = covariance(StateIndex::LinearAcceleration::X + i, StateIndex::LinearAcceleration::X + j);
-
-      // Angular acceleration covariance (bottom-right 3x3 block)
-      msg.accel.covariance[(i+3)*6 + (j+3)] = covariance(StateIndex::AngularAcceleration::X + i, StateIndex::AngularAcceleration::X + j);
-    }
-  }
+  const auto p = typed::read<typed::StateCovariance>(covariance);
+  // Linear acceleration covariance (top-left 3x3 block) [(m/s²)²]
+  ExportBlock<StateIndex::LinearAcceleration::X, StateIndex::LinearAcceleration::X>(
+      p, msg.accel.covariance, 0, 0, (metre / (second * second)) * (metre / (second * second)));
+  // Angular acceleration covariance (bottom-right 3x3 block) [(rad/s²)², the angle a ratio]
+  ExportBlock<StateIndex::AngularAcceleration::X, StateIndex::AngularAcceleration::X>(
+      p, msg.accel.covariance, 3, 3, (per_second / second) * (per_second / second));
 
   return msg;
 }

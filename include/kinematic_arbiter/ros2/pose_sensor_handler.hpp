@@ -80,13 +80,12 @@ protected:
     double sign = positive ? 1.0 : -1.0;
 
     // Apply bounds to position components using measurement indices
-    double x_std_dev = std::sqrt(covariance(MeasurementIndex::X, MeasurementIndex::X));
-    double y_std_dev = std::sqrt(covariance(MeasurementIndex::Y, MeasurementIndex::Y));
-    double z_std_dev = std::sqrt(covariance(MeasurementIndex::Z, MeasurementIndex::Z));
-
-    bounded_msg.pose.position.x += sign * x_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.pose.position.y += sign * y_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.pose.position.z += sign * z_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.pose.position.x = SigmaBounded<typed::Length>(
+        bounded_msg.pose.position.x, covariance(MeasurementIndex::X, MeasurementIndex::X), sign);
+    bounded_msg.pose.position.y = SigmaBounded<typed::Length>(
+        bounded_msg.pose.position.y, covariance(MeasurementIndex::Y, MeasurementIndex::Y), sign);
+    bounded_msg.pose.position.z = SigmaBounded<typed::Length>(
+        bounded_msg.pose.position.z, covariance(MeasurementIndex::Z, MeasurementIndex::Z), sign);
 
     // For quaternion components, we simply copy the original
     // Applying uncertainties to quaternions is more complex and would require

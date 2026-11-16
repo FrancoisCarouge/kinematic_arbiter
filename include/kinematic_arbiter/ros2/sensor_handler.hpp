@@ -11,6 +11,8 @@
 #include <string>
 #include <Eigen/Dense>
 
+#include "kinematic_arbiter/core/typed_state.hpp"
+
 #include "kinematic_arbiter/core/mediated_kalman_filter.hpp"
 #include "kinematic_arbiter/core/measurement_model_interface.hpp"
 #include "kinematic_arbiter/core/sensor_types.hpp"
@@ -36,6 +38,17 @@ public:
 
   // Constant for bound calculation
   static constexpr double SIGMA_BOUND_FACTOR = 3.0;
+
+  /**
+   * @brief The message field `value` moved by `sign` times the sigma bound of
+   * the variance `variance`, both in the unit of `Type` (squared for the
+   * variance), in the order the bounds were computed
+   */
+  template <typename Type>
+  static double SigmaBounded(double value, double variance, double sign) {
+    const Type std_dev{std::sqrt(variance) * Type::reference};
+    return (value * Type::reference + sign * std_dev * SIGMA_BOUND_FACTOR).numerical_value_in(Type::unit);
+  }
 
   /**
    * @brief Constructor for SensorHandler

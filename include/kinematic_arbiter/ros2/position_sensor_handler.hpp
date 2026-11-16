@@ -64,13 +64,12 @@ protected:
     double sign = positive ? 1.0 : -1.0;
 
     // Apply bounds using measurement indices
-    double x_std_dev = std::sqrt(covariance(MeasurementIndex::X, MeasurementIndex::X));
-    double y_std_dev = std::sqrt(covariance(MeasurementIndex::Y, MeasurementIndex::Y));
-    double z_std_dev = std::sqrt(covariance(MeasurementIndex::Z, MeasurementIndex::Z));
-
-    bounded_msg.point.x += sign * x_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.point.y += sign * y_std_dev * SIGMA_BOUND_FACTOR;
-    bounded_msg.point.z += sign * z_std_dev * SIGMA_BOUND_FACTOR;
+    bounded_msg.point.x = SigmaBounded<typed::Length>(
+        bounded_msg.point.x, covariance(MeasurementIndex::X, MeasurementIndex::X), sign);
+    bounded_msg.point.y = SigmaBounded<typed::Length>(
+        bounded_msg.point.y, covariance(MeasurementIndex::Y, MeasurementIndex::Y), sign);
+    bounded_msg.point.z = SigmaBounded<typed::Length>(
+        bounded_msg.point.z, covariance(MeasurementIndex::Z, MeasurementIndex::Z), sign);
 
     return bounded_msg;
   }
