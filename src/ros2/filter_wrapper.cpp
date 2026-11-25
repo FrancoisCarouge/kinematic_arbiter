@@ -13,12 +13,12 @@ namespace {
 namespace typed = kinematic_arbiter::typed;
 
 /**
- * @brief Writes the 3x3 block of the typed state covariance `p` at `StateRow`,
+ * @brief Writes the 3x3 block of the typed covariance `p` at `StateRow`,
  * `StateColumn` into the 6x6 message covariance `out` at `row`, `column`, each
  * element in `unit`: a block of another unit does not compile
  */
-template <std::size_t StateRow, std::size_t StateColumn, typename Unit>
-void ExportBlock(const typed::StateCovariance& p, std::array<double, 36>& out, int row, int column,
+template <std::size_t StateRow, std::size_t StateColumn, typename Typed, typename Unit>
+void ExportBlock(const Typed& p, std::array<double, 36>& out, int row, int column,
                  Unit unit) {
   [&]<std::size_t... Index>(std::index_sequence<Index...>) {
     ((out[(row + Index / 3) * 6 + column + Index % 3] =
@@ -221,15 +221,14 @@ geometry_msgs::msg::PoseWithCovarianceStamped FilterWrapper::getPoseEstimate() {
   msg.pose.pose.orientation.y = state(StateIndex::Quaternion::Y);
   msg.pose.pose.orientation.z = state(StateIndex::Quaternion::Z);
 
-  // Fill covariance (position and orientation blocks)
-  const auto p = typed::read<typed::StateCovariance>(covariance);
-  // Position covariance (top-left 3x3 block) [m²]
-  ExportBlock<StateIndex::Position::X, StateIndex::Position::X>(p, msg.pose.covariance, 0, 0, metre * metre);
-  // Orientation covariance (bottom-right 3x3 block): the message's is of the
-  // rotation about each axis [rad²], the state's of the quaternion's vector
-  // part [1], about half the rotation angle: its numbers are published as
-  // they are, an approximation (Q14)
-  ExportBlock<StateIndex::Quaternion::X, StateIndex::Quaternion::X>(p, msg.pose.covariance, 3, 3, mp_units::one);
+  // Fill covariance: the position's [m²], the rotation's about the world
+  // frame's fixed axes [rad², the angle a ratio], to first order in the
+  // quaternion's, and their cross-covariance [m rad]
+  const auto p = typed::pose_covariance(state, covariance);
+  ExportBlock<0, 0>(p, msg.pose.covariance, 0, 0, metre * metre);
+  ExportBlock<0, 3>(p, msg.pose.covariance, 0, 3, metre);
+  ExportBlock<3, 0>(p, msg.pose.covariance, 3, 0, metre);
+  ExportBlock<3, 3>(p, msg.pose.covariance, 3, 3, mp_units::one);
 
   return msg;
 }

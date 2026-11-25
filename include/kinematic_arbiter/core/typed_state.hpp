@@ -9,6 +9,8 @@
 
 #include <Eigen/Dense>
 
+#include "kinematic_arbiter/core/state_index.hpp"
+
 #include "fcarouge/sparse_linear_algebra.hpp"
 #include "fcarouge/typed_linear_algebra.hpp"
 #include "mp-units/framework/quantity.h"
@@ -348,6 +350,48 @@ Result project(const UntypedJacobian& jacobian, const UntypedCovariance& state_c
   const auto h = read<Jacobian<Measurement, Pattern>>(jacobian);
   return untyped<Covariance, Result>(
       Covariance{h * read<StateCovariance>(state_covariance) * fcarouge::transposed(h)});
+}
+
+/// The elements of a pose: the position [m], and the rotation about the fixed
+/// axes of the world frame [rad, the angle a ratio].
+using Pose = decltype(std::tuple_cat(Repeat<Length, 3>{}, Repeat<Ratio, 3>{}));
+
+/// The pose depends on the position, the rotation on the quaternion.
+inline constexpr fcarouge::sparse::pattern kPosePattern{
+    fcarouge::sparse::shape<6, core::StateIndex::kFullStateSize>,
+    [](std::size_t row, std::size_t column) {
+      return row < 3U ? column == row
+                      : column >= core::StateIndex::Quaternion::W &&
+                            column <= core::StateIndex::Quaternion::Z;
+    }};
+
+/// The covariance of the pose of the state `state` of covariance `covariance`:
+/// the position's, the rotation's about the fixed axes of the world frame, and
+/// their cross-covariance, each element the product of two pose units. The
+/// rotation of a perturbation dq of the quaternion q = (w, v), body to world, is
+/// to first order δθ = 2 vec(dq ⊗ q*) = 2 [-v | w I + [v]×] dq.
+template <typename UntypedState, typename UntypedCovariance>
+Matrix<Pose, Pose> pose_covariance(const UntypedState& state,
+                                   const UntypedCovariance& covariance) {
+  using core::StateIndex;
+  const double w = state(StateIndex::Quaternion::W);
+  const double x = state(StateIndex::Quaternion::X);
+  const double y = state(StateIndex::Quaternion::Y);
+  const double z = state(StateIndex::Quaternion::Z);
+  Eigen::Matrix<double, 3, 4> rotation_jacobian;
+  rotation_jacobian <<
+      // clang-format off
+      -2 * x,  2 * w, -2 * z,  2 * y,
+      -2 * y,  2 * z,  2 * w, -2 * x,
+      -2 * z, -2 * y,  2 * x,  2 * w;
+      // clang-format on
+
+  Jacobian<Pose, kPosePattern> jacobian;
+  place_diagonal<0, StateIndex::Position::X, 3>(jacobian, 1. * mp_units::one);
+  place<3, StateIndex::Quaternion::W>(
+      jacobian, typed<Partial<Ratio, Ratio, 4, 3>>(rotation_jacobian, mp_units::one));
+  return Matrix<Pose, Pose>{jacobian * read<StateCovariance>(covariance) *
+                            fcarouge::transposed(jacobian)};
 }
 
 /// The state covariance `covariance` propagated by the transition matrix

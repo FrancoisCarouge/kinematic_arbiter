@@ -90,6 +90,10 @@ add_test_executable(trajectory_utils_test
   "${CMAKE_SOURCE_DIR}/test/core/trajectory_utils_test.cpp")
 set_tests_properties(trajectory_utils_test PROPERTIES LABELS "core")
 
+add_test_executable(pose_covariance_test
+  "${CMAKE_SOURCE_DIR}/test/core/pose_covariance_test.cpp")
+set_tests_properties(pose_covariance_test PROPERTIES LABELS "core")
+
 # Sensor tests
 add_test_executable(body_velocity_sensor_model_test
   "${CMAKE_SOURCE_DIR}/test/sensors/body_velocity_sensor_model_test.cpp")
